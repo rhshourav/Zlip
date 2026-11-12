@@ -1,0 +1,39 @@
+# .github/workflows/links.yml
+# Catches dead links on the project site before they go live.
+# Assumes the site lives in docs/ (adjust the path if you keep it elsewhere).
+name: Link check
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+  schedule:
+    - cron: "23 4 * * 1" # weekly: external pages rot even when nobody pushes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lychee:
+    name: lychee
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # releases/latest is a 404 until the first release exists, and the page
+      # already handles that case, so it is excluded. Fonts and the API are
+      # fetched by the browser at runtime, not links a reader follows.
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --accept 200,206,429
+            --exclude "releases/latest"
+            --exclude "fonts\\.(googleapis|gstatic)\\.com"
+            --exclude "api\\.github\\.com"
+            "docs/**/*.html"
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
