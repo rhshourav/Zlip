@@ -1,0 +1,148 @@
+# .github/workflows/ci.yml
+# Runs on every push to main and every pull request.
+# release.yml calls this file as its quality gate (workflow_call).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+# Deliberately not keyed on github.workflow: when release.yml calls this file,
+# that value would equal the caller's own concurrency group and deadlock.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-windows-clippy
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: "Stub the frontend build (the Tauri context macro needs the folder to exist)"
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Set-Content dist/index.html '<!doctype html><title>stub</title>'
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  test:
+    name: tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-windows-test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: "Stub the frontend build"
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Set-Content dist/index.html '<!doctype html><title>stub</title>'
+      - run: cargo test --workspace --locked
+
+  # Proves the OS-independent crates really are OS-independent.
+  portable-core:
+    name: portable crates (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-linux-core
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --locked -p zlip-core -p zlip-config -p zlip-security -p zlip-highlight
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check
+      - run: npm run build
+
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # Fails on known vulnerabilities. Unmaintained-crate warnings do not fail
+      # the build (Tauri's Linux-only transitive deps trigger some); document
+      # any deliberate ignore in .cargo/audit.toml.
+      - run: cargo audit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm audit --omit=dev --audit-level=high
+
+  # Cache scope: a cache written on a tag ref is invisible to the next tag, but
+  # tag runs can read the default branch's caches. So main builds the exact
+  # release profile under the same key that release.yml restores.
+  warm-release-cache:
+    name: warm release cache
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [fmt, clippy, test, portable-core, frontend, audit]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-windows-x64
+      - run: npm ci
+      - run: npx tauri build --no-bundle
