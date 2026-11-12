@@ -1,0 +1,456 @@
+# .github/workflows/release.yml
+#
+# Zlip release pipeline:
+#   tag push -> prepare -> CI gate -> build (MSI + NSIS) -> publish -> Winget PR
+#
+# Secrets (store them in a GitHub Environment named "release"):
+#   TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD   updater signing key
+#   WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD               optional .pfx, base64
+#   WINGET_PKGS_TOKEN    classic PAT, scope public_repo (opens the winget-pkgs PR)
+#
+# Manual re-run: Actions -> Release -> Run workflow, and pick the TAG (not a
+# branch) under "Use workflow from".
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+    inputs:
+      submit_winget:
+        description: "Generate manifests and open the Winget PR (stable tags only)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+  PACKAGE_ID: rhshourav.Zlip
+  PACKAGE_LICENSE: MIT # <- SPDX id of your LICENSE file
+  PACKAGE_SHORT_DESC: "Fast, private, glass-styled clipboard manager with paste queues and snippets."
+
+jobs:
+  # ---------------------------------------------------------------- prepare
+  prepare:
+    name: Validate tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag format and version consistency
+        id: meta
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+            echo "::error::Run this workflow from a tag (Use workflow from -> Tags), not a branch."
+            exit 1
+          fi
+          TAG="$GITHUB_REF_NAME"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$TAG' must look like v1.2.3 or v1.2.3-rc.1"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          CARGO_VERSION="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "zlip") | .version')"
+          CONF_VERSION="$(jq -r '.version // empty' src-tauri/tauri.conf.json)"
+          if [[ "$CARGO_VERSION" != "$VERSION" ]]; then
+            echo "::error::Cargo.toml version ($CARGO_VERSION) does not match tag ($VERSION)"
+            exit 1
+          fi
+          if [[ -n "$CONF_VERSION" && "$CONF_VERSION" != "$VERSION" ]]; then
+            echo "::error::tauri.conf.json version ($CONF_VERSION) does not match tag ($VERSION)"
+            exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            if [[ "$VERSION" == *-* ]]; then echo "prerelease=true"; else echo "prerelease=false"; fi
+          } >> "$GITHUB_OUTPUT"
+
+  # --------------------------------------------------------------- CI gate
+  ci:
+    name: CI gate
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  # ----------------------------------------------------------- auto builder
+  build-windows:
+    name: Build (Windows x64)
+    needs: [prepare, ci]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: write # create the draft release and upload assets
+      id-token: write # sigstore OIDC for provenance
+      attestations: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # Restores what ci.yml's warm-release-cache job saved on main.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-windows-x64
+          cache-on-failure: true
+
+      - run: npm ci
+
+      - name: Import Authenticode certificate (optional)
+        if: env.WINDOWS_CERTIFICATE != ''
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'zlip-codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My `
+            -Password (ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force)
+          Remove-Item $pfx -Force
+
+          # Runner-local edit only; never committed.
+          $path = 'src-tauri/tauri.conf.json'
+          $conf = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable
+          $conf.bundle ??= @{}
+          $conf.bundle.windows ??= @{}
+          $conf.bundle.windows.certificateThumbprint = $cert.Thumbprint
+          $conf.bundle.windows.digestAlgorithm = 'sha256'
+          $conf.bundle.windows.timestampUrl = 'http://timestamp.digicert.com'
+          $conf | ConvertTo-Json -Depth 32 | Set-Content $path -Encoding utf8NoBOM
+
+      # Builds the UI and the Rust app, then bundles an NSIS .exe and a WiX .msi
+      # (Tauri downloads the NSIS and WiX tooling itself) and uploads both to a
+      # DRAFT release together with the updater signatures and latest.json.
+      - name: Build, bundle and upload to the draft release
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        with:
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: "Zlip ${{ needs.prepare.outputs.tag }}"
+          releaseBody: "Verify downloads against SHA256SUMS.txt."
+          releaseDraft: true
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          args: --bundles nsis,msi
+
+      - name: Compute SHA256 sums and attach them to the release
+        id: hash
+        shell: pwsh
+        env:
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = $env:ARTIFACT_PATHS | ConvertFrom-Json | Where-Object { $_ -match '\.(msi|exe)$' }
+          if (-not $files) { throw 'No installers were produced.' }
+          $lines = foreach ($f in $files) {
+            $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower()
+            "$h  $(Split-Path $f -Leaf)"
+          }
+          $lines | Set-Content SHA256SUMS.txt -Encoding utf8NoBOM
+          Get-Content SHA256SUMS.txt | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          $subjects = ($files | ForEach-Object { $_ -replace '\\', '/' }) -join "`n"
+          "subjects<<ZLIP_EOF`n$subjects`nZLIP_EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          gh release upload "$env:TAG" SHA256SUMS.txt --clobber
+
+      # Needs a public repo (or a plan with attestations); never fails a private one.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        continue-on-error: ${{ github.event.repository.private == true }}
+        with:
+          subject-path: ${{ steps.hash.outputs.subjects }}
+
+  # ---------------------------------------------------------------- publish
+  publish:
+    name: Publish release
+    needs: [prepare, build-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Verify the draft has every expected asset
+        run: |
+          set -euo pipefail
+          names="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          for pat in '\.msi$' '-setup\.exe$' '^SHA256SUMS\.txt$' '^latest\.json$'; do
+            grep -Eq "$pat" <<<"$names" || { echo "::error::Missing asset matching $pat"; exit 1; }
+          done
+
+      - name: Make the release public
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+
+  # ---------------------------------------------------- auto Winget generator
+  winget:
+    name: Winget manifests + PR
+    needs: [prepare, publish]
+    if: ${{ needs.prepare.outputs.prerelease == 'false' && (github.event_name == 'push' || inputs.submit_winget) }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require WINGET_PKGS_TOKEN
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_PKGS_TOKEN }}
+        run: |
+          if (-not $env:WINGET_TOKEN) {
+            throw 'Secret WINGET_PKGS_TOKEN is not set (classic PAT with the public_repo scope).'
+          }
+
+      - name: Locate the published MSI
+        id: asset
+        shell: pwsh
+        run: |
+          $rel = gh release view $env:TAG --repo $env:GITHUB_REPOSITORY --json assets | ConvertFrom-Json
+          $msi = @($rel.assets | Where-Object { $_.name -like '*_x64_*.msi' })
+          if ($msi.Count -ne 1) { throw "Expected exactly one x64 MSI, found $($msi.Count)." }
+          "name=$($msi[0].name)" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "url=$($msi[0].url)"   | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # The hash is taken from the PUBLIC URL's bytes, which is exactly what
+      # Winget will download, so it cannot disagree with the release.
+      - name: Download from the public URL and compute SHA256
+        id: hash
+        shell: pwsh
+        env:
+          URL: ${{ steps.asset.outputs.url }}
+          NAME: ${{ steps.asset.outputs.name }}
+        run: |
+          $ok = $false
+          for ($i = 1; $i -le 5 -and -not $ok; $i++) {
+            try {
+              Invoke-WebRequest -Uri $env:URL -OutFile $env:NAME
+              $ok = $true
+            } catch {
+              Write-Host "Attempt $i failed: $($_.Exception.Message)"
+              Start-Sleep -Seconds (5 * $i)
+            }
+          }
+          if (-not $ok) { throw "Could not download $env:URL" }
+          $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $env:NAME).Hash.ToUpper()
+          "sha256=$sha" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "SHA256 ($env:NAME) = $sha" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Read ProductCode / UpgradeCode / ProductVersion from the MSI
+        id: msi
+        shell: pwsh
+        env:
+          NAME: ${{ steps.asset.outputs.name }}
+        run: |
+          function Get-MsiProperty([string]$Path, [string]$Name) {
+            $installer = New-Object -ComObject WindowsInstaller.Installer
+            $db   = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($Path, 0))
+            $view = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @("SELECT Value FROM Property WHERE Property = '$Name'"))
+            $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+            $rec  = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+            $val  = $rec.GetType().InvokeMember('StringData', 'GetProperty', $null, $rec, @(1))
+            $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null) | Out-Null
+            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($installer)
+            return $val
+          }
+          $path = (Resolve-Path $env:NAME).Path
+          foreach ($p in 'ProductCode', 'UpgradeCode', 'ProductVersion') {
+            $v = Get-MsiProperty $path $p
+            if (-not $v) { throw "MSI property $p is missing" }
+            "$($p.ToLower())=$v" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
+      - name: Generate the Winget manifests (version, installer, defaultLocale)
+        shell: pwsh
+        env:
+          INSTALLER_URL: ${{ steps.asset.outputs.url }}
+          INSTALLER_SHA256: ${{ steps.hash.outputs.sha256 }}
+          PRODUCT_CODE: ${{ steps.msi.outputs.productcode }}
+          UPGRADE_CODE: ${{ steps.msi.outputs.upgradecode }}
+          DISPLAY_VERSION: ${{ steps.msi.outputs.productversion }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $id = $env:PACKAGE_ID
+          $publisher, $package = $id.Split('.', 2)
+          $version  = $env:VERSION
+          $repoUrl  = "https://github.com/$env:GITHUB_REPOSITORY"
+          $released = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
+          $dir = "winget-manifests/manifests/$($publisher.Substring(0,1).ToLower())/$publisher/$package/$version"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+
+          $versionYaml = @"
+          # yaml-language-server: `$schema=https://aka.ms/winget-manifest.version.1.10.0.schema.json
+          PackageIdentifier: $id
+          PackageVersion: $version
+          DefaultLocale: en-US
+          ManifestType: version
+          ManifestVersion: 1.10.0
+          "@
+
+          $installerYaml = @"
+          # yaml-language-server: `$schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+          PackageIdentifier: $id
+          PackageVersion: $version
+          InstallerLocale: en-US
+          MinimumOSVersion: 10.0.18362.0
+          InstallerType: wix
+          Scope: machine
+          InstallModes:
+          - interactive
+          - silent
+          - silentWithProgress
+          UpgradeBehavior: install
+          ReleaseDate: $released
+          Installers:
+          - Architecture: x64
+            InstallerUrl: $($env:INSTALLER_URL)
+            InstallerSha256: $($env:INSTALLER_SHA256)
+            ProductCode: '$($env:PRODUCT_CODE)'
+            AppsAndFeaturesEntries:
+            - DisplayName: $package
+              Publisher: $publisher
+              DisplayVersion: $($env:DISPLAY_VERSION)
+              ProductCode: '$($env:PRODUCT_CODE)'
+              UpgradeCode: '$($env:UPGRADE_CODE)'
+              InstallerType: wix
+          ManifestType: installer
+          ManifestVersion: 1.10.0
+          "@
+
+          $localeYaml = @"
+          # yaml-language-server: `$schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+          PackageIdentifier: $id
+          PackageVersion: $version
+          PackageLocale: en-US
+          Publisher: $publisher
+          PublisherUrl: https://github.com/$publisher
+          PublisherSupportUrl: $repoUrl/issues
+          Author: $publisher
+          PackageName: $package
+          PackageUrl: $repoUrl
+          License: $($env:PACKAGE_LICENSE)
+          LicenseUrl: $repoUrl/blob/$($env:TAG)/LICENSE
+          ShortDescription: "$($env:PACKAGE_SHORT_DESC)"
+          Tags:
+          - clipboard
+          - clipboard-manager
+          - productivity
+          - rust
+          - tauri
+          ReleaseNotesUrl: $repoUrl/releases/tag/$($env:TAG)
+          ManifestType: defaultLocale
+          ManifestVersion: 1.10.0
+          "@
+
+          Set-Content -LiteralPath "$dir/$id.yaml"               -Value $versionYaml   -Encoding utf8NoBOM
+          Set-Content -LiteralPath "$dir/$id.installer.yaml"     -Value $installerYaml -Encoding utf8NoBOM
+          Set-Content -LiteralPath "$dir/$id.locale.en-US.yaml"  -Value $localeYaml    -Encoding utf8NoBOM
+          Get-ChildItem $dir | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
+
+      - name: Keep the manifests as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: winget-manifests
+          path: winget-manifests
+          retention-days: 30
+
+      # No clone of winget-pkgs (it is enormous): fork, branch off upstream
+      # master (forks share objects with upstream), commit the three files
+      # through the Contents API, then open the PR.
+      - name: Submit the Winget pull request
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_PKGS_TOKEN }}
+          INSTALLER_URL: ${{ steps.asset.outputs.url }}
+          INSTALLER_SHA256: ${{ steps.hash.outputs.sha256 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          $upstream = 'microsoft/winget-pkgs'
+          $id = $env:PACKAGE_ID
+          $publisher, $package = $id.Split('.', 2)
+          $version  = $env:VERSION
+          $branch   = "$id-$version"
+          $pkgPath  = "manifests/$($publisher.Substring(0,1).ToLower())/$publisher/$package"
+          $localDir = "winget-manifests/$pkgPath/$version"
+
+          $me = (gh api user --jq .login).Trim()
+
+          # New package or new version? Decides the PR title.
+          $isNew = $false
+          try { gh api "repos/$upstream/contents/$pkgPath" --silent } catch { $isNew = $true }
+          $kind = if ($isNew) { 'New package' } else { 'New version' }
+          $message = "${kind}: $id version $version"
+
+          # 1) Fork (a no-op if it exists) and wait until it is reachable.
+          try { gh repo fork $upstream --clone=false } catch { Write-Host 'Fork already exists.' }
+          $ready = $false
+          for ($i = 0; $i -lt 12 -and -not $ready; $i++) {
+            try { gh api "repos/$me/winget-pkgs" --silent; $ready = $true } catch { Start-Sleep -Seconds 5 }
+          }
+          if (-not $ready) { throw 'Fork never became available.' }
+
+          # 2) Branch off the tip of upstream master.
+          $base = (gh api "repos/$upstream/git/ref/heads/master" --jq .object.sha).Trim()
+          try {
+            gh api -X POST "repos/$me/winget-pkgs/git/refs" -f "ref=refs/heads/$branch" -f "sha=$base" --silent
+          } catch {
+            gh api -X PATCH "repos/$me/winget-pkgs/git/refs/heads/$branch" -f "sha=$base" -F force=true --silent
+          }
+
+          # 3) Commit the three manifest files.
+          foreach ($f in Get-ChildItem $localDir -File) {
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($f.FullName))
+            gh api -X PUT "repos/$me/winget-pkgs/contents/$pkgPath/$version/$($f.Name)" `
+              -f "message=$message" -f "content=$b64" -f "branch=$branch" --silent
+          }
+
+          # 4) Open the PR (skip if this branch already has one).
+          $open = gh pr list --repo $upstream --author $me --head $branch --state open --json number --jq 'length'
+          if ([int]$open -gt 0) { Write-Host "A PR for $branch is already open."; return }
+
+          $body = @(
+            'Automated by the Zlip release pipeline.',
+            '',
+            "- Package: $id",
+            "- Version: $version",
+            "- Installer: $($env:INSTALLER_URL)",
+            "- SHA256: $($env:INSTALLER_SHA256) (computed from the public URL)",
+            "- Release: https://github.com/$($env:GITHUB_REPOSITORY)/releases/tag/$($env:TAG)"
+          ) -join "`n"
+          gh pr create --repo $upstream --base master --head "${me}:$branch" --title $message --body $body
