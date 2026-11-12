@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Zlip: a glass clipboard manager for Windows</title>
+<meta name="description" content="Press Win+V and find anything you've copied. Fast, private, glass-styled clipboard manager with paste queues and snippets. Built with Rust and Tauri.">
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef1f8;--ink:#1b1f2e;--mute:#586078;--glass:rgba(255,255,255,.55);--edge:rgba(255,255,255,.7);--hi:rgba(255,255,255,.9);--shadow:rgba(60,70,120,.35);--line:rgba(27,31,46,.1);
+  --lav:#c9b8ff;--mint:#b8f0d8;--peach:#ffd3b6;--sky:#bfe0ff;--rose:#ffc2d9;--lemon:#fff1b0;--accent:#6b4eff;--on-accent:#fff;
+  --f-d:'Bricolage Grotesque',system-ui,sans-serif;--f-b:'Hanken Grotesk',system-ui,sans-serif;--f-m:'JetBrains Mono',ui-monospace,Consolas,monospace;
+}
+@media(prefers-color-scheme:dark){:root{--bg:#10121c;--ink:#eceefa;--mute:#a1a8c4;--glass:rgba(30,34,54,.55);--edge:rgba(255,255,255,.12);--hi:rgba(255,255,255,.14);--shadow:rgba(0,0,0,.7);--line:rgba(255,255,255,.1);--accent:#b3a0ff;--on-accent:#14102e}}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:1.5rem}
+body{margin:0;font:400 1.0625rem/1.6 var(--f-b);color:var(--ink);background:var(--bg);overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0;z-index:-1;background:radial-gradient(60rem 40rem at 85% -10%,color-mix(in srgb,var(--lav) 55%,transparent),transparent),radial-gradient(50rem 36rem at -10% 20%,color-mix(in srgb,var(--sky) 50%,transparent),transparent),radial-gradient(44rem 30rem at 60% 90%,color-mix(in srgb,var(--rose) 40%,transparent),transparent)}
+a{color:inherit}h1,h2,h3{font-family:var(--f-d);line-height:1.1;margin:0;letter-spacing:-.02em}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:8px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 1.25rem}
+section{padding:5.5rem 0}
+.lead{color:var(--mute);max-width:60ch;margin:.9rem 0 0}
+h2{font-size:clamp(1.9rem,4vw,2.9rem);font-weight:700;max-width:20ch}
+.glass{background:var(--glass);-webkit-backdrop-filter:blur(24px) saturate(1.6);backdrop-filter:blur(24px) saturate(1.6);border:1px solid var(--edge);box-shadow:inset 0 1px 0 var(--hi),0 24px 60px -24px var(--shadow)}
+kbd{font:500 .85em var(--f-m);padding:.1em .5em;border-radius:7px;background:var(--glass);border:1px solid var(--line);box-shadow:0 2px 0 var(--line)}
+.btn{display:inline-flex;align-items:center;gap:.5rem;font:600 1rem var(--f-b);padding:.8rem 1.3rem;border-radius:999px;border:1px solid transparent;cursor:pointer;text-decoration:none;transition:transform .15s}
+.btn:active{transform:scale(.97)}
+.btn.p{background:var(--accent);color:var(--on-accent)}.btn.g{background:var(--glass);border-color:var(--edge);color:var(--ink);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+
+/* nav */
+.dock{position:fixed;left:50%;bottom:max(.9rem,env(safe-area-inset-bottom));z-index:30;display:flex;align-items:flex-end;gap:.45rem;padding:.5rem;border-radius:28px;max-width:calc(100% - 1rem);transform:translateX(-50%);animation:dockin 1s .6s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes dockin{from{transform:translate(-50%,180%) scale(.7);opacity:0}}
+.dock a{--s:1;position:relative;font:600 .92rem var(--f-b);text-decoration:none;color:#1b1f2e;background:var(--c,var(--lav));padding:.65rem 1rem;border-radius:20px;white-space:nowrap;transform-origin:50% 100%;transform:translateY(calc((var(--s) - 1) * -16px)) scale(var(--s));transition:transform .3s cubic-bezier(.34,1.56,.64,1),background .2s,color .2s,box-shadow .2s;box-shadow:0 6px 14px -8px var(--shadow)}
+.dock a:active{transform:scale(.9)}
+.dock a.on{background:var(--accent);color:var(--on-accent);box-shadow:0 10px 22px -8px var(--accent)}
+.dock a.pop{animation:pop .5s cubic-bezier(.34,1.56,.64,1)}
+@keyframes pop{35%{transform:translateY(-18px) scale(1.2)}70%{transform:translateY(2px) scale(.95)}}
+.dock .brand{align-self:center;background:none;box-shadow:none;color:var(--ink);font:800 1.2rem var(--f-d);padding:.4rem .8rem .4rem .6rem}
+.dock .go{animation:bob 4s 2.5s infinite}
+@keyframes bob{0%,86%,100%{translate:0 0}91%{translate:0 -7px}96%{translate:0 0}}
+@media(max-width:560px){.dock{gap:.25rem;padding:.35rem}.dock .brand{display:none}.dock a{padding:.55rem .62rem;font-size:.8rem;border-radius:16px}}
+
+/* hero */
+.hero{padding:4rem 0 3rem}
+.hero .wrap{display:grid;grid-template-columns:1.2fr .8fr;gap:3rem;align-items:center}
+h1{font-size:clamp(2.6rem,6vw,4.6rem);font-weight:800;letter-spacing:-.035em}
+.hero .lead{font-size:1.2rem}
+.cta{display:flex;flex-wrap:wrap;gap:.75rem;margin:1.8rem 0 1rem}
+.cmd{display:flex;align-items:center;gap:.6rem;font:500 .92rem var(--f-m);padding:.45rem .5rem .45rem 1rem;border-radius:14px;width:fit-content;max-width:100%}
+.cmd code{overflow-x:auto;white-space:nowrap}
+.cmd button{font:600 .8rem var(--f-b);border:0;border-radius:9px;padding:.35rem .7rem;background:var(--ink);color:var(--bg);cursor:pointer}
+@media(max-width:900px){.hero .wrap{grid-template-columns:1fr}}
+
+/* overlay demo */
+.ov{zoom:.84;max-width:460px;margin-inline:auto;border-radius:26px;padding:1rem;animation:rise .9s cubic-bezier(.2,.8,.2,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(28px) scale(.97);filter:blur(10px)}}
+.srch{display:flex;align-items:center;gap:.6rem;padding:.65rem .9rem;border-radius:14px;background:var(--glass);border:1px solid var(--line)}
+.srch input{all:unset;flex:1;font:500 1rem var(--f-b);min-width:0}
+.chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.75rem 0}
+.chip{font:500 .82rem var(--f-b);padding:.28rem .75rem;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.list{list-style:none;margin:0;padding:0;display:grid;gap:.4rem;min-height:15.5rem;align-content:start}
+.list button{all:unset;box-sizing:border-box;width:100%;display:flex;gap:.7rem;align-items:center;padding:.6rem .75rem;border-radius:13px;cursor:pointer;border:1px solid transparent;transition:background .2s,transform .2s,border-color .2s}
+.list button:hover{background:var(--glass);transform:translateX(3px)}
+.list button[aria-pressed=true]{border-color:var(--accent);background:var(--glass)}
+.list button:focus-visible{outline:3px solid var(--accent)}
+.dot{flex:none;width:.7rem;height:2.2rem;border-radius:6px}
+.list span.x{font:400 .9rem var(--f-m);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.list small{color:var(--mute);font-size:.78rem}
+.empty{padding:2rem 1rem;text-align:center;color:var(--mute)}
+.q{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-top:.8rem;padding-top:.8rem;border-top:1px solid var(--line);font-size:.88rem}
+.q ol{display:flex;gap:.35rem;list-style:none;margin:0;padding:0;flex-wrap:wrap}
+.q li{padding:.15rem .6rem;border-radius:999px;background:var(--lav);color:#1b1f2e;font:500 .8rem var(--f-m);max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.q select{font:500 .85rem var(--f-b);border-radius:9px;border:1px solid var(--line);background:var(--glass);color:var(--ink);padding:.3rem .4rem;margin-left:auto}
+.q .btn{padding:.4rem .9rem;font-size:.85rem}
+.tgt{margin-top:.8rem;border-radius:14px;padding:.7rem .9rem;background:rgba(20,22,34,.82);color:#e9ebf7;font:400 .85rem var(--f-m);min-height:3.2rem}
+.tgt i{font:italic 500 .75rem var(--f-b);color:#9aa2c0;display:block;margin-bottom:.15rem}
+.hint{font-size:.85rem;color:var(--mute);margin:.9rem .3rem 0}
+
+/* tiers */
+.tiers{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:1.1rem;margin-top:2.5rem}
+.tier{border-radius:26px;padding:1.6rem}
+.tier:nth-child(1){background:linear-gradient(160deg,color-mix(in srgb,var(--mint) 60%,transparent),var(--glass))}
+.tier:nth-child(2){background:linear-gradient(160deg,color-mix(in srgb,var(--peach) 60%,transparent),var(--glass))}
+.tier:nth-child(3){background:linear-gradient(160deg,color-mix(in srgb,var(--lav) 60%,transparent),var(--glass))}
+.tier h3{font-size:1.5rem}.tier>p{color:var(--mute);margin:.4rem 0 1rem;font-size:.97rem}
+.tier dl{margin:0;display:grid;gap:.85rem}.tier dt{font-weight:600}.tier dd{margin:.1rem 0 0;color:var(--mute);font-size:.92rem}
+@media(max-width:900px){.tiers{grid-template-columns:1fr}}
+
+/* security */
+.sec{display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:center}
+.sec ul{padding:0;list-style:none;display:grid;gap:1rem;margin:1.8rem 0 0}
+.sec li{padding-left:1.1rem;border-left:3px solid var(--mint)}.sec li b{display:block}.sec li span{color:var(--mute);font-size:.95rem}
+.vault{border-radius:24px;padding:1.4rem;display:grid;gap:1rem}
+.row{display:flex;justify-content:space-between;gap:1rem;align-items:center;padding:.7rem .9rem;border-radius:13px;background:var(--glass);border:1px solid var(--line);font-size:.92rem}
+.tag{font:600 .75rem var(--f-b);padding:.2rem .6rem;border-radius:999px;background:var(--rose);color:#1b1f2e}
+.bar{height:8px;border-radius:8px;background:var(--line);overflow:hidden}.bar i{display:block;height:100%;width:100%;background:var(--accent);transform-origin:left}
+.bar i.run{animation:drain 60s linear forwards}@keyframes drain{to{transform:scaleX(0)}}
+@media(max-width:900px){.sec{grid-template-columns:1fr}}
+
+/* design system */
+.sw{display:grid;grid-template-columns:repeat(6,1fr);gap:.8rem;margin-top:2.5rem}
+.sw button{all:unset;cursor:pointer;border-radius:20px;padding:4.2rem .9rem .9rem;font:500 .9rem var(--f-b);color:#1b1f2e;transition:transform .2s}
+.sw button:hover{transform:translateY(-4px)}.sw button:focus-visible{outline:3px solid var(--accent)}
+.sw small{display:block;font:400 .78rem var(--f-m);opacity:.75}
+.rules{display:grid;grid-template-columns:repeat(3,1fr);gap:2rem;margin-top:2.5rem}
+.rules h3{font-size:1.15rem;margin-bottom:.4rem}.rules p{margin:0;color:var(--mute);font-size:.95rem}
+@media(max-width:900px){.sw{grid-template-columns:repeat(3,1fr)}.rules{grid-template-columns:1fr}}
+
+/* architecture */
+.arch{display:grid;grid-template-columns:1.1fr 1fr;gap:1.1rem;margin-top:2.5rem}
+pre{margin:0;padding:1.4rem;border-radius:24px;overflow-x:auto;font:400 .86rem/1.7 var(--f-m)}
+.crates{border-radius:24px;padding:1.4rem}.crates dt{font:500 .95rem var(--f-m)}.crates dd{margin:.1rem 0 .9rem;color:var(--mute);font-size:.92rem}
+@media(max-width:900px){.arch{grid-template-columns:1fr}}
+
+/* pipeline */
+.flow{list-style:none;margin:2.5rem 0 0;padding:0;display:grid;grid-template-columns:repeat(5,1fr);gap:.9rem;counter-reset:s}
+.flow li{counter-increment:s;border-radius:22px;padding:1.2rem;position:relative}
+.flow li::before{content:counter(s);display:grid;place-items:center;width:2rem;height:2rem;border-radius:50%;background:var(--accent);color:var(--on-accent);font:700 .9rem var(--f-d);margin-bottom:.8rem}
+.flow b{display:block;font:700 1.05rem var(--f-d)}.flow span{color:var(--mute);font-size:.9rem}
+.jobs{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.4rem}.jobs span{font:500 .82rem var(--f-m);padding:.3rem .75rem;border-radius:999px;background:var(--glass);border:1px solid var(--line)}
+@media(max-width:1000px){.flow{grid-template-columns:1fr 1fr}}@media(max-width:560px){.flow{grid-template-columns:1fr}}
+
+/* install + footer */
+.install{border-radius:32px;padding:clamp(1.6rem,4vw,3rem);text-align:center;background:linear-gradient(160deg,color-mix(in srgb,var(--sky) 55%,transparent),var(--glass))}
+.install h2{margin:0 auto}.install .lead{margin-inline:auto}.install .cta,.install .cmd{justify-content:center;margin-inline:auto}
+footer{padding:2.5rem 0 7rem;color:var(--mute);font-size:.92rem}footer .wrap{display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<nav class="dock glass" aria-label="Main">
+  <a class="brand" href="#">Zlip</a>
+  <a href="#features" style="--c:var(--mint)">Features</a>
+  <a href="#security" style="--c:var(--rose)">Security</a>
+  <a href="#design" style="--c:var(--peach)">Design</a>
+  <a href="#build" style="--c:var(--sky)">Build</a>
+  <a class="go" href="#install" style="--c:var(--lemon)">Install</a>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <h1>Press <kbd>Win</kbd>+<kbd>V</kbd>. Find anything you’ve copied.</h1>
+      <p class="lead">Zlip replaces the Windows clipboard panel with a fast, private, glass-styled one. Search as you type, paste several items in order, and clean up text before it lands.</p>
+      <div class="cta">
+        <a class="btn p" href="https://github.com/rhshourav/Zlip/releases/latest">Download for Windows</a>
+        <a class="btn g" href="https://github.com/rhshourav/Zlip">View on GitHub</a>
+      </div>
+      <div class="cmd glass"><code>winget install rhshourav.Zlip</code><button data-copy="winget install rhshourav.Zlip">Copy</button></div>
+    </div>
+
+    <div>
+      <div class="ov glass" role="group" aria-label="Interactive Zlip demo">
+        <label class="srch"><span aria-hidden="true">⌕</span><input id="q" type="search" placeholder="Type to filter your clips" autocomplete="off" aria-label="Filter clips"></label>
+        <div class="chips" id="chips" role="group" aria-label="Filter by type"></div>
+        <ul class="list" id="list"></ul>
+        <div class="q">
+          <span>Queue:</span><ol id="queue" aria-label="Paste queue"></ol>
+          <select id="fmt" aria-label="Paste format"><option value="plain">Plain text</option><option value="trim">Trim spaces</option><option value="snake">snake_case</option><option value="camel">camelCase</option></select>
+          <button class="btn p" id="paste">Paste next</button>
+        </div>
+        <div class="tgt" aria-live="polite"><i>Target app</i><span id="out">Pick clips above, then paste them one at a time.</span></div>
+      </div>
+      <p class="hint">This is a live demo. Select clips to queue them; they paste first in, first out.</p>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Built around three jobs</h2>
+    <p class="lead">Remember what you copied, reshape it, and use it in your own workflow. Each feature earns its place by removing a step.</p>
+    <div class="tiers">
+      <article class="tier glass">
+        <h3>Remember</h3><p>Everything is sorted the moment you copy it.</p>
+        <dl>
+          <div><dt>Smart categories</dt><dd>Text, images, code, colors, and links are tagged automatically, so you filter instead of scrolling.</dd></div>
+          <div><dt>Snippet folders</dt><dd>Pin terminal commands, boilerplate, and signatures. They stay put when history rolls over.</dd></div>
+          <div><dt>Instant fuzzy search</dt><dd>Typing starts filtering the second the overlay opens. No click to focus, and typos still match.</dd></div>
+        </dl>
+      </article>
+      <article class="tier glass">
+        <h3>Reshape</h3><p>Fix the text before it lands.</p>
+        <dl>
+          <div><dt>Paste queue</dt><dd>Copy five things, paste five things, in order. No window juggling.</dd></div>
+          <div><dt>Paste formatting</dt><dd>Plain text, casing, trimmed whitespace, or decoded Base64, chosen at paste time.</dd></div>
+          <div><dt>Quick edit</dt><dd>A mini editor inside the overlay, so a small fix doesn’t need another app.</dd></div>
+        </dl>
+      </article>
+      <article class="tier glass">
+        <h3>Automate</h3><p>For developers and power users.</p>
+        <dl>
+          <div><dt>Syntax highlighting</dt><dd>JSON, XML, SQL, and Rust are detected and pretty-printed in the preview.</dd></div>
+          <div><dt>Placeholders</dt><dd>Use <code>{date}</code>, <code>{clipboard_state}</code>, and <code>{cursor}</code> in pinned snippets.</dd></div>
+          <div><dt>Action webhooks</dt><dd>Send a copied string to a local script or a CI trigger.</dd></div>
+        </dl>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap sec">
+    <div>
+      <h2>Private by default</h2>
+      <p class="lead">A clipboard sees everything you copy, so Zlip is strict about what it keeps and for how long.</p>
+      <ul>
+        <li><b>Password managers are ignored</b><span>Bitwarden, 1Password, and similar apps are blocklisted from the first launch.</span></li>
+        <li><b>Secrets expire in 60 seconds</b><span>High-entropy strings such as API keys and card numbers are cleared automatically.</span></li>
+        <li><b>Memory is wiped, not just freed</b><span>Sensitive buffers are zeroed in Rust when they are dropped.</span></li>
+        <li><b>Every shortcut and rule is yours</b><span>Retention, blocklists, and themes live in a TOML file or the settings screen.</span></li>
+      </ul>
+    </div>
+    <div class="vault glass" aria-label="Security demo">
+      <div class="row"><span>1Password</span><span class="tag">Ignored</span></div>
+      <div class="row"><span>Bitwarden</span><span class="tag">Ignored</span></div>
+      <div class="row" style="flex-direction:column;align-items:stretch">
+        <div style="display:flex;justify-content:space-between;gap:1rem"><code id="key">Nothing copied yet</code><span id="kstate" class="tag" style="background:var(--mint)">Idle</span></div>
+        <div class="bar" style="margin-top:.7rem"><i id="kbar"></i></div>
+      </div>
+      <button class="btn p" id="ksim" style="justify-self:start">Copy a sample API key</button>
+    </div>
+  </div>
+</section>
+
+<section id="design">
+  <div class="wrap">
+    <h2>Soft color, clear structure</h2>
+    <p class="lead">Each kind of clip gets its own pastel, so you recognize items by color before you read them. Select a swatch to copy its hex code.</p>
+    <div class="sw" id="sw"></div>
+    <div class="rules">
+      <div><h3>Glass that stays readable</h3><p>A 24 px blur with a thin bright edge lets the desktop show through while text keeps its contrast.</p></div>
+      <div><h3>Search sits on top</h3><p>The search field is the first thing under your cursor, because filtering is the most common action.</p></div>
+      <div><h3>Motion explains change</h3><p>Items expand, queue, and paste with short transitions that show what moved. Reduced-motion settings are respected.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="build">
+  <div class="wrap">
+    <h2>Shipped by a pipeline you can read</h2>
+    <p class="lead">Every release goes from a version tag to a signed Windows installer and a Winget pull request, with no manual steps in between.</p>
+    <ol class="flow">
+      <li class="glass"><b>Validate the tag</b><span>The tag must match the versions in Cargo.toml and tauri.conf.json.</span></li>
+      <li class="glass"><b>Pass the CI gate</b><span>The release reuses the same CI checks that run on every pull request.</span></li>
+      <li class="glass"><b>Build installers</b><span>One run produces an <code>.exe</code> and an <code>.msi</code>, then adds SHA256 sums and a provenance attestation.</span></li>
+      <li class="glass"><b>Publish</b><span>A draft release carries the installers and updater signatures.</span></li>
+      <li class="glass"><b>Open the Winget PR</b><span>The pipeline hashes the public installer, writes the manifests, and submits to winget-pkgs.</span></li>
+    </ol>
+    <div class="jobs"><span>rustfmt</span><span>clippy -D warnings</span><span>tests on Windows</span><span>portable crates on Linux</span><span>frontend lint + build</span><span>cargo audit + npm audit</span><span>daily security scan</span></div>
+
+    <div class="arch">
+<pre class="glass" aria-label="Project layout">zlip/
+├─ src-tauri/      Tauri shell, tray, overlay window
+├─ zlip-core       history, categories, paste queue
+├─ zlip-config     TOML schema, live reload
+├─ zlip-security   blocklist, entropy check, wipe
+├─ zlip-highlight  JSON / XML / SQL / Rust
+├─ src/            frontend (lint · check · build)
+└─ .github/workflows/
+   ├─ ci.yml       every push and pull request
+   ├─ release.yml  tag → installers → Winget
+   └─ audit.yml    daily vulnerability scan</pre>
+      <dl class="crates glass">
+        <dt>tauri</dt><dd>Small native shell with a transparent, blurred overlay window.</dd>
+        <dt>rdev</dt><dd>Global keyboard hook, so Win+V opens Zlip instead of the built-in panel.</dd>
+        <dt>serde</dt><dd>Reads and writes the TOML and JSON config.</dd>
+        <dt>zeroize</dt><dd>Overwrites sensitive memory before it is released.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <div class="install glass">
+      <h2>Get Zlip</h2>
+      <p class="lead">Install with Winget, or download the installer and compare it with the published SHA256 sums.</p>
+      <div class="cta" style="justify-content:center">
+        <a class="btn p" href="https://github.com/rhshourav/Zlip/releases/latest">Download installer</a>
+        <a class="btn g" href="https://github.com/rhshourav/Zlip/issues">Report an issue</a>
+      </div>
+      <div class="cmd glass"><code>winget install rhshourav.Zlip</code><button data-copy="winget install rhshourav.Zlip">Copy</button></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap"><span>Zlip by <a href="https://github.com/rhshourav">rhshourav</a>. Open source under the MIT license.</span><span>Built with Rust and Tauri.</span></div></footer>
+
+<script>
+const $=s=>document.querySelector(s);
+const TYPES={Text:'var(--mint)',Code:'var(--lav)',Link:'var(--sky)',Color:'var(--rose)',JSON:'var(--peach)'};
+const clips=[
+ {t:'Link',x:'https://github.com/rhshourav/Zlip'},
+ {t:'Code',x:'cargo test --locked -p zlip-core'},
+ {t:'Color',x:'#C9B8FF'},
+ {t:'Text',x:'  Meeting at 4pm, bring the Q3 deck  '},
+ {t:'JSON',x:'{"theme":"glass","blur":24}'},
+ {t:'Text',x:'release notes draft'}
+];
+let type='All',queue=[],text='';
+const fuzzy=(n,h)=>{n=n.toLowerCase().replace(/\s/g,'');h=h.toLowerCase();let i=0;for(const c of h)if(c===n[i])i++;return i===n.length};
+const words=s=>s.trim().replace(/[^A-Za-z0-9]+/g,' ').trim().split(' ').filter(Boolean);
+const FMT={plain:s=>s,trim:s=>s.trim(),snake:s=>words(s).map(w=>w.toLowerCase()).join('_'),
+ camel:s=>words(s).map((w,i)=>i?w[0].toUpperCase()+w.slice(1).toLowerCase():w.toLowerCase()).join('')};
+
+function chips(){
+  $('#chips').innerHTML=['All',...Object.keys(TYPES)].map(t=>`<button class="chip" aria-pressed="${t===type}" data-t="${t}">${t}</button>`).join('');
+}
+function list(){
+  const v=clips.map((c,i)=>({...c,i})).filter(c=>(type==='All'||c.t===type)&&(!text||fuzzy(text,c.x)));
+  $('#list').innerHTML=v.length?v.map(c=>`<li><button aria-pressed="${queue.includes(c.i)}" data-i="${c.i}"><span class="dot" style="background:${TYPES[c.t]}"></span><span class="x">${c.x.replace(/</g,'&lt;')}</span><small>${c.t}</small></button></li>`).join(''):'<li class="empty">No clips match. Clear the search to see everything.</li>';
+}
+function q(){$('#queue').innerHTML=queue.length?queue.map(i=>`<li title="${clips[i].x.trim()}">${clips[i].x.trim()}</li>`).join(''):'<li style="background:none;color:var(--mute);padding:0">empty</li>'}
+$('#chips').onclick=e=>{const t=e.target.closest('[data-t]');if(t){type=t.dataset.t;chips();list()}};
+$('#q').oninput=e=>{text=e.target.value;list()};
+$('#list').onclick=e=>{const b=e.target.closest('[data-i]');if(!b)return;const i=+b.dataset.i;queue=queue.includes(i)?queue.filter(n=>n!==i):[...queue,i];list();q()};
+$('#paste').onclick=()=>{
+  if(!queue.length){$('#out').textContent='Queue is empty. Select a clip to add it.';return}
+  const i=queue.shift();$('#out').textContent=FMT[$('#fmt').value](clips[i].x)||'(empty after formatting)';list();q();
+};
+chips();list();q();
+
+/* copy buttons */
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-copy]');if(!b)return;
+  const old=b.textContent;
+  try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent='Copied'}catch{b.textContent='Press Ctrl+C'}
+  setTimeout(()=>b.textContent=old,1600);
+});
+
+/* security demo */
+let kt;
+$('#ksim').onclick=()=>{
+  clearTimeout(kt);const bar=$('#kbar');bar.classList.remove('run');void bar.offsetWidth;bar.classList.add('run');
+  $('#key').textContent='sk_live_4f9a…c21e';$('#kstate').textContent='Clears in 60 s';
+  kt=setTimeout(()=>{$('#key').textContent='Cleared from history';$('#kstate').textContent='Cleared'},60000);
+};
+
+/* dock */
+const dock=$('.dock'),da=[...dock.querySelectorAll('a:not(.brand)')];
+dock.addEventListener('pointermove',e=>{if(e.pointerType==='touch')return;
+  da.forEach(a=>{const r=a.getBoundingClientRect(),d=Math.abs(e.clientX-(r.left+r.width/2));
+    a.style.setProperty('--s',(1+.26*Math.max(0,1-d/120)).toFixed(3))})});
+dock.addEventListener('pointerleave',()=>da.forEach(a=>a.style.removeProperty('--s')));
+da.forEach(a=>{a.addEventListener('click',()=>{a.classList.remove('pop');void a.offsetWidth;a.classList.add('pop')});
+  a.addEventListener('animationend',()=>a.classList.remove('pop'))});
+const spy=new IntersectionObserver(es=>es.forEach(e=>{if(!e.isIntersecting)return;
+  da.forEach(a=>{const on=a.getAttribute('href')==='#'+e.target.id;a.classList.toggle('on',on);
+    on?a.setAttribute('aria-current','true'):a.removeAttribute('aria-current')})}),
+  {rootMargin:'-45% 0px -50% 0px'});
+document.querySelectorAll('section[id]').forEach(s=>spy.observe(s));
+
+/* palette */
+const pal=[['Text','#B8F0D8'],['Code','#C9B8FF'],['Link','#BFE0FF'],['Color','#FFC2D9'],['JSON & data','#FFD3B6'],['Images','#FFF1B0']];
+$('#sw').innerHTML=pal.map(([n,h])=>`<button style="background:${h}" data-copy="${h}">${n}<small>${h}</small></button>`).join('');
+</script>
+</body>
+</html>
