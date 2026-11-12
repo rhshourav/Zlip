@@ -1,0 +1,57 @@
+# .github/workflows/audit.yml
+# Scheduled vulnerability scan. New advisories appear against old lockfiles,
+# so this runs daily even when nobody pushes. ci.yml gates every change.
+name: Security audit
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  push:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - "package-lock.json"
+      - ".cargo/audit.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Scan Cargo.lock
+        id: scan
+        run: |
+          set +e
+          cargo audit 2>&1 | tee audit.txt
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue when vulnerabilities are found
+        if: steps.scan.outputs.status != '0'
+        run: |
+          set -euo pipefail
+          gh label create security --color D93F0B --force
+          open="$(gh issue list --label security --state open \
+            --search 'cargo-audit in:title' --json number --jq length)"
+          if [ "$open" = "0" ]; then
+            gh issue create --label security \
+              --title "cargo-audit: vulnerabilities found ($(date -u +%F))" \
+              --body "See $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi
+          exit 1
