@@ -155,7 +155,7 @@ jobs:
       # DRAFT release together with the updater signatures and latest.json.
       - name: Build, bundle and upload to the draft release
         id: tauri
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         with:
           tagName: ${{ needs.prepare.outputs.tag }}
           releaseName: "Zlip ${{ needs.prepare.outputs.tag }}"
