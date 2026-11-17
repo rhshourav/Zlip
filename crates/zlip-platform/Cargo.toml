@@ -1,0 +1,51 @@
+[package]
+name = "zlip-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Zlip: the only crate with OS calls (hook, clipboard, paste, foreground)"
+
+[lints.rust]
+unsafe_code = "allow"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+
+[features]
+# Compile the Win32 module on non-Windows hosts so Linux CI/dev can type-check it.
+# Such a build cannot be run. It changes nothing on Windows.
+typecheck = []
+
+[dependencies]
+zlip-core.workspace = true
+zlip-config.workspace = true
+zlip-security.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+getrandom.workspace = true
+crossbeam-channel.workspace = true
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_Security_Credentials",
+  "Win32_System_DataExchange",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_UI_Controls",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }

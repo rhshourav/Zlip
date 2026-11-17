@@ -1,0 +1,38 @@
+[package]
+name = "zlip"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Fast, private, glass-styled clipboard manager"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+window-vibrancy = "0.8"
+raw-window-handle = "0.6"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+crossbeam-channel.workspace = true
+zlip-core.workspace = true
+zlip-config.workspace = true
+zlip-security.workspace = true
+zlip-highlight.workspace = true
+zlip-store.workspace = true
+zlip-actions.workspace = true
+zlip-platform.workspace = true
+zlip-engine.workspace = true
+chrono.workspace = true
+zeroize.workspace = true

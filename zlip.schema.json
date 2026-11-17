@@ -1,0 +1,600 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "description": "The whole configuration file.",
+  "type": "object",
+  "properties": {
+    "actions": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Action"
+      }
+    },
+    "automations": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Automation"
+      }
+    },
+    "hotkeys": {
+      "$ref": "#/$defs/Hotkeys",
+      "default": {
+        "close": "Escape",
+        "delete": "Delete",
+        "expand": "Tab",
+        "next_category": "Ctrl+Right",
+        "open_overlay": "Win+V",
+        "paste_plain": "Shift+Enter",
+        "pin": "Ctrl+P",
+        "prev_category": "Ctrl+Left",
+        "queue_add": "Ctrl+Q",
+        "queue_collect": "Ctrl+Shift+Q",
+        "queue_paste": "Ctrl+V",
+        "quick_paste": "Alt+{1..9}"
+      }
+    },
+    "retention": {
+      "$ref": "#/$defs/Retention",
+      "default": {
+        "max_age": "30d",
+        "max_image_mb": 25,
+        "max_items": 500,
+        "max_text_kb": 1024
+      }
+    },
+    "schema": {
+      "description": "Config format version. Currently 1.",
+      "type": "integer",
+      "format": "uint32",
+      "default": 1,
+      "minimum": 0
+    },
+    "security": {
+      "$ref": "#/$defs/SecurityConfig",
+      "default": {
+        "blacklist_exes": [
+          "bitwarden.exe",
+          "1password.exe",
+          "keepass.exe",
+          "keepassxc.exe",
+          "dashlane.exe",
+          "enpass.exe",
+          "nordpass.exe"
+        ],
+        "blacklist_titles": [
+          "Bitwarden",
+          "1Password",
+          "KeePass",
+          "Dashlane",
+          "NordPass",
+          "Enpass",
+          "Proton Pass",
+          "RoboForm",
+          "LastPass"
+        ],
+        "min_entropy_bits": 3.5,
+        "min_token_len": 16,
+        "sensitive_ttl_secs": 60
+      }
+    },
+    "snippet_folders": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/SnippetFolder"
+      }
+    },
+    "theme": {
+      "$ref": "#/$defs/Theme",
+      "default": {
+        "animations": true,
+        "categories": {
+          "code": "#D6C4F5",
+          "color": "#F8C4D8",
+          "file": "#F7E3A6",
+          "image": "#FAD0B8",
+          "link": "#A9D6F5",
+          "sensitive": "#F5B5AD",
+          "snippet": "#BDEBD0",
+          "text": "#C5CAF5"
+        },
+        "corner_radius": 24,
+        "mode": "auto",
+        "tint_opacity": 0.14000000059604645
+      }
+    },
+    "ui": {
+      "$ref": "#/$defs/Ui",
+      "default": {
+        "close_on_blur": true,
+        "height": 640,
+        "hint_hide_after": 5,
+        "position": "caret",
+        "search_limit": 50,
+        "width": 440
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Action": {
+      "description": "A user-defined action. Declared here only, never built from clipboard text.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "description": "Arguments passed as-is (no shell parsing).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "kind": {
+          "$ref": "#/$defs/ActionKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Absolute path to the program or script. Started directly, never through a shell.",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "description": "Kill the process after this many milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 5000,
+          "maximum": 60000,
+          "minimum": 100
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "path"
+      ]
+    },
+    "ActionKind": {
+      "oneOf": [
+        {
+          "description": "Run a program with the item on stdin.",
+          "type": "string",
+          "const": "script"
+        }
+      ]
+    },
+    "Automation": {
+      "description": "Rule: when a copy matches `when`, apply the `do` transforms before it is stored.",
+      "type": "object",
+      "properties": {
+        "do": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Transform"
+          }
+        },
+        "when": {
+          "$ref": "#/$defs/When"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "when",
+        "do"
+      ]
+    },
+    "Category": {
+      "description": "What a clipboard item *is*. The set matches the UI's category rail and the\npastel palette one-to-one.",
+      "type": "string",
+      "enum": [
+        "text",
+        "link",
+        "code",
+        "image",
+        "color",
+        "file",
+        "snippet",
+        "sensitive"
+      ]
+    },
+    "CategoryColors": {
+      "description": "Pastel colour per category, written as `#RRGGBB`.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "default": "#D6C4F5"
+        },
+        "color": {
+          "type": "string",
+          "default": "#F8C4D8"
+        },
+        "file": {
+          "type": "string",
+          "default": "#F7E3A6"
+        },
+        "image": {
+          "type": "string",
+          "default": "#FAD0B8"
+        },
+        "link": {
+          "type": "string",
+          "default": "#A9D6F5"
+        },
+        "sensitive": {
+          "type": "string",
+          "default": "#F5B5AD"
+        },
+        "snippet": {
+          "type": "string",
+          "default": "#BDEBD0"
+        },
+        "text": {
+          "type": "string",
+          "default": "#C5CAF5"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Hotkeys": {
+      "description": "Shortcuts, written like `Ctrl+Shift+Q`. Global ones must include a modifier.",
+      "type": "object",
+      "properties": {
+        "close": {
+          "description": "In the overlay: close.",
+          "type": "string",
+          "default": "Escape"
+        },
+        "delete": {
+          "description": "In the overlay: delete the selected item.",
+          "type": "string",
+          "default": "Delete"
+        },
+        "expand": {
+          "description": "In the overlay: expand or collapse the selected item.",
+          "type": "string",
+          "default": "Tab"
+        },
+        "next_category": {
+          "description": "In the overlay: next category.",
+          "type": "string",
+          "default": "Ctrl+Right"
+        },
+        "open_overlay": {
+          "description": "Global: show or hide the overlay.",
+          "type": "string",
+          "default": "Win+V"
+        },
+        "paste_plain": {
+          "description": "In the overlay: paste the selected item as plain text.",
+          "type": "string",
+          "default": "Shift+Enter"
+        },
+        "pin": {
+          "description": "In the overlay: pin the selected item.",
+          "type": "string",
+          "default": "Ctrl+P"
+        },
+        "prev_category": {
+          "description": "In the overlay: previous category.",
+          "type": "string",
+          "default": "Ctrl+Left"
+        },
+        "queue_add": {
+          "description": "In the overlay: add the selected item to the paste queue.",
+          "type": "string",
+          "default": "Ctrl+Q"
+        },
+        "queue_collect": {
+          "description": "Global: start collecting copies, press again to start pasting them in order.",
+          "type": "string",
+          "default": "Ctrl+Shift+Q"
+        },
+        "queue_paste": {
+          "description": "Global, only while a queue is being pasted: paste the next queued item.",
+          "type": "string",
+          "default": "Ctrl+V"
+        },
+        "quick_paste": {
+          "description": "In the overlay: paste the 1st to 9th visible item, written like `Alt+{1..9}`.",
+          "type": "string",
+          "default": "Alt+{1..9}"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Position": {
+      "oneOf": [
+        {
+          "description": "Next to the text cursor when Windows reports one, else bottom-centre.",
+          "type": "string",
+          "const": "caret"
+        },
+        {
+          "description": "Always bottom-centre of the active monitor.",
+          "type": "string",
+          "const": "center"
+        }
+      ]
+    },
+    "Retention": {
+      "type": "object",
+      "properties": {
+        "max_age": {
+          "description": "Oldest age kept, like `12h`, `30d`, `8w`, or `never`.",
+          "type": "string",
+          "default": "30d"
+        },
+        "max_image_mb": {
+          "description": "Images larger than this many megabytes are ignored.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 25,
+          "maximum": 512,
+          "minimum": 1
+        },
+        "max_items": {
+          "description": "Most items kept (pinned items are exempt).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 500,
+          "maximum": 100000,
+          "minimum": 10
+        },
+        "max_text_kb": {
+          "description": "Text larger than this many kilobytes is ignored.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 1024,
+          "maximum": 65536,
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "SecurityConfig": {
+      "type": "object",
+      "properties": {
+        "blacklist_exes": {
+          "description": "Copies made by these programs are never captured.",
+          "type": "array",
+          "default": [
+            "bitwarden.exe",
+            "1password.exe",
+            "keepass.exe",
+            "keepassxc.exe",
+            "dashlane.exe",
+            "enpass.exe",
+            "nordpass.exe"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "blacklist_titles": {
+          "description": "Copies made while the active window title contains one of these words are skipped.",
+          "type": "array",
+          "default": [
+            "Bitwarden",
+            "1Password",
+            "KeePass",
+            "Dashlane",
+            "NordPass",
+            "Enpass",
+            "Proton Pass",
+            "RoboForm",
+            "LastPass"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "min_entropy_bits": {
+          "description": "Shannon entropy (bits per character) above which a token looks random.",
+          "type": "number",
+          "format": "double",
+          "default": 3.5,
+          "maximum": 6.0,
+          "minimum": 1.0
+        },
+        "min_token_len": {
+          "description": "Shortest random-looking token treated as a secret.",
+          "type": "integer",
+          "format": "uint",
+          "default": 16,
+          "maximum": 256,
+          "minimum": 8
+        },
+        "sensitive_ttl_secs": {
+          "description": "Seconds a sensitive item lives before it is wiped (and the clipboard cleared if untouched).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 60,
+          "maximum": 3600,
+          "minimum": 5
+        }
+      },
+      "additionalProperties": false
+    },
+    "Snippet": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "description": "Text pasted. Placeholders: `{date}`, `{date:%Y-%m-%d}`, `{time}`, `{clipboard}`, `{cursor}`.",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "body"
+      ]
+    },
+    "SnippetFolder": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Snippet"
+          }
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ]
+    },
+    "Theme": {
+      "type": "object",
+      "properties": {
+        "animations": {
+          "description": "Turn motion off entirely when false.",
+          "type": "boolean",
+          "default": true
+        },
+        "categories": {
+          "$ref": "#/$defs/CategoryColors",
+          "default": {
+            "code": "#D6C4F5",
+            "color": "#F8C4D8",
+            "file": "#F7E3A6",
+            "image": "#FAD0B8",
+            "link": "#A9D6F5",
+            "sensitive": "#F5B5AD",
+            "snippet": "#BDEBD0",
+            "text": "#C5CAF5"
+          }
+        },
+        "corner_radius": {
+          "description": "Window corner radius in pixels, 0 to 48.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 24,
+          "maximum": 48,
+          "minimum": 0
+        },
+        "mode": {
+          "$ref": "#/$defs/ThemeMode",
+          "default": "auto"
+        },
+        "tint_opacity": {
+          "description": "How much the glass is tinted, 0.0 (clear) to 1.0 (solid).",
+          "type": "number",
+          "format": "float",
+          "default": 0.14000000059604645,
+          "maximum": 1.0,
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ThemeMode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "light",
+        "dark"
+      ]
+    },
+    "Transform": {
+      "description": "A reversible-at-paste-time text operation. The same names appear in the UI's\ntransform bar and in `[[automations]] do = [...]`.",
+      "type": "string",
+      "enum": [
+        "trim",
+        "camel_case",
+        "pascal_case",
+        "snake_case",
+        "kebab_case",
+        "screaming_snake_case",
+        "upper",
+        "lower",
+        "base64_decode",
+        "base64_encode",
+        "strip_tracking_params"
+      ]
+    },
+    "Ui": {
+      "type": "object",
+      "properties": {
+        "close_on_blur": {
+          "description": "Close the overlay when it loses focus.",
+          "type": "boolean",
+          "default": true
+        },
+        "height": {
+          "description": "Overlay height in pixels.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 640,
+          "maximum": 1200,
+          "minimum": 360
+        },
+        "hint_hide_after": {
+          "description": "Hide a footer hint after its shortcut was used this many times (0 = never hide).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 5,
+          "minimum": 0
+        },
+        "position": {
+          "$ref": "#/$defs/Position",
+          "default": "caret"
+        },
+        "search_limit": {
+          "description": "Most results shown per search.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 50,
+          "maximum": 200,
+          "minimum": 10
+        },
+        "width": {
+          "description": "Overlay width in pixels.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 440,
+          "maximum": 900,
+          "minimum": 320
+        }
+      },
+      "additionalProperties": false
+    },
+    "When": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "description": "Only for this kind of item.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Category"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source_exe": {
+          "description": "Only for copies made by this program, like `chrome.exe`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

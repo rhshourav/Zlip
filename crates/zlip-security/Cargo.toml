@@ -1,0 +1,20 @@
+[package]
+name = "zlip-security"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Zlip: sensitive-data detector, in-RAM vault, expiry, blacklist"
+
+[lints]
+workspace = true
+
+[dependencies]
+zlip-core.workspace = true
+zlip-config.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+url.workspace = true
+zeroize.workspace = true

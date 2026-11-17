@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Every Zlip window may call the app's own commands and listen for its events. Nothing else: no file system, shell, HTTP or opener access.",
+  "windows": [
+    "overlay",
+    "hud"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

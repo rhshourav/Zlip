@@ -1,0 +1,61 @@
+/* ============================================================================
+   Icon slots
+   Every icon position in Zlip is an empty, fixed-size slot:
+
+       <span class="slot" data-slot="pin"></span>
+
+   Nothing is drawn until you map a slot below, so layout, spacing and
+   alignment are final today and your assets drop in without touching the
+   components. An icon is a CSS mask painted with the current text colour, so
+   it automatically follows light/dark mode and the pastel accents.
+
+   To map one, uncomment its line and point it at your file:
+
+       [data-slot='pin'] { --icon: url('./assets/icons/pin.svg'); --icon-paint: currentColor; }
+
+   (Use `--icon-paint` with a colour or gradient of your own for a tinted icon.)
+   ========================================================================= */
+.slot {
+  --size: 16px;
+  display: inline-block;
+  flex: none;
+  width: var(--size);
+  height: var(--size);
+  background: var(--icon-paint, transparent);
+  -webkit-mask: var(--icon, none) center / contain no-repeat;
+  mask: var(--icon, none) center / contain no-repeat;
+}
+
+/* Slots the interface exposes (all currently unmapped): */
+/* [data-slot='search'] */
+/* [data-slot='private'] */
+/* [data-slot='queue'] */
+/* [data-slot='clear'] */
+/* [data-slot='chevron'] */
+/* [data-slot='pin'] */
+/* [data-slot='paste'] */
+/* [data-slot='edit'] */
+/* [data-slot='delete'] */
+/* [data-slot='reveal'] */
+/* [data-slot='lock'] */
+/* [data-slot='action'] */
+/* [data-slot='folder'] */
+/* [data-slot='folder-pinned'] */
+/* [data-slot='category-all'] */
+/* [data-slot='category-text'] */
+/* [data-slot='category-code'] */
+/* [data-slot='category-link'] */
+/* [data-slot='category-image'] */
+/* [data-slot='category-color'] */
+/* [data-slot='category-file'] */
+/* [data-slot='category-snippet'] */
+/* [data-slot='category-sensitive'] */
+/* [data-slot='queue-collecting'] */
+/* [data-slot='queue-draining'] */
+
+/* Until you map icons, a few places show a small drawn stand-in (a pastel dot, a
+   chevron) so nothing looks empty. Once you have mapped those slots, switch the
+   stand-ins off by uncommenting:
+
+   :root { --fallback-dot: none; --fallback-chevron: none; }
+*/

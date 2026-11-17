@@ -1,0 +1,25 @@
+[package]
+name = "zlip-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Zlip: encrypted SQLite history and retention janitor"
+
+[lints]
+workspace = true
+
+[dependencies]
+zlip-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+rusqlite.workspace = true
+chacha20poly1305.workspace = true
+blake3.workspace = true
+zeroize.workspace = true
+getrandom.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

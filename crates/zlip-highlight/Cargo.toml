@@ -1,0 +1,23 @@
+[package]
+name = "zlip-highlight"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Zlip: language detection, pretty-printing and escaped HTML highlighting"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+quick-xml.workspace = true
+sqlparser.workspace = true
+sqlformat.workspace = true
+syn.workspace = true
+prettyplease.workspace = true
+syntect.workspace = true

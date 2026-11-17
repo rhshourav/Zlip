@@ -1,0 +1,85 @@
+#:schema ./zlip.schema.json
+# Zlip configuration. Save the file and Zlip reloads it instantly; if the file
+# has a mistake, Zlip keeps the last good settings and tells you what is wrong.
+schema = 1
+
+[hotkeys]
+# Global shortcuts (must include a modifier). Zlip swallows these system-wide.
+open_overlay  = "Win+V"
+queue_collect = "Ctrl+Shift+Q"   # start collecting copies; press again to start pasting them in order
+queue_paste   = "Ctrl+V"         # while pasting a queue, this key pastes the next queued item
+# Shortcuts inside the overlay.
+paste_plain   = "Shift+Enter"
+quick_paste   = "Alt+{1..9}"     # Alt+1 pastes the first visible item, Alt+2 the second, ...
+expand        = "Tab"
+pin           = "Ctrl+P"
+queue_add     = "Ctrl+Q"
+delete        = "Delete"
+close         = "Escape"
+prev_category = "Ctrl+Left"
+next_category = "Ctrl+Right"
+
+[theme]
+mode          = "auto"   # auto | light | dark
+tint_opacity  = 0.14     # 0.0 - 1.0, how much the glass is tinted
+corner_radius = 24       # pixels, 0 - 48
+animations    = true
+
+[theme.categories]       # pastel colour per kind of item, as #RRGGBB
+text      = "#C5CAF5"
+link      = "#A9D6F5"
+code      = "#D6C4F5"
+image     = "#FAD0B8"
+color     = "#F8C4D8"
+file      = "#F7E3A6"
+snippet   = "#BDEBD0"
+sensitive = "#F5B5AD"
+
+[ui]
+width             = 440
+height            = 640
+position          = "caret"  # caret = next to the text cursor when known | center
+search_limit      = 50
+close_on_blur     = true
+hint_hide_after   = 5        # hide a footer hint once you have used its shortcut this many times; 0 = never hide
+
+[retention]
+max_items    = 500
+max_age      = "30d"         # e.g. "12h", "30d", "8w", or "never"
+max_image_mb = 25
+max_text_kb  = 1024          # copies larger than this are ignored
+
+[security]
+sensitive_ttl_secs = 60
+min_token_len      = 16
+min_entropy_bits   = 3.5
+# Copies made by these programs are never captured.
+blacklist_exes = [
+  "bitwarden.exe",
+  "1password.exe",
+  "keepass.exe",
+  "keepassxc.exe",
+  "dashlane.exe",
+  "enpass.exe",
+  "nordpass.exe",
+]
+# Browser extensions copy from inside the browser, so Zlip also skips copies
+# made while the active window title contains one of these words.
+blacklist_titles = ["Bitwarden", "1Password", "KeePass", "Dashlane", "NordPass", "Enpass", "Proton Pass", "RoboForm", "LastPass"]
+
+# Pinned snippets. Placeholders: {date} {date:%Y-%m-%d} {time} {clipboard} {cursor}
+# [[snippet_folders]]
+# name  = "Terminal"
+# items = [{ title = "Docker prune", body = "docker system prune -af" }]
+
+# Run a script with the selected item on stdin (never for sensitive items).
+# [[actions]]
+# name       = "Run lint hook"
+# kind       = "script"
+# path       = "C:/tools/zlip/lint.ps1"
+# timeout_ms = 5000
+
+# Clean up items automatically when they are copied.
+# [[automations]]
+# when = { category = "link" }
+# do   = ["strip_tracking_params"]

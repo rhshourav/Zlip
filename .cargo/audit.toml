@@ -1,0 +1,11 @@
+# cargo-audit configuration (read by ci.yml and audit.yml).
+#
+# A vulnerability fails CI. "Unmaintained" notices do not (Tauri's Linux-only
+# transitive dependencies trigger a few that cannot affect the Windows build).
+#
+# To accept a specific advisory on purpose, list it here WITH a reason and a date
+# to revisit. Never add an ignore without both.
+[advisories]
+ignore = [
+  # "RUSTSEC-0000-0000", # reason: ...; revisit: YYYY-MM-DD
+]

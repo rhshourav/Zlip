@@ -1,0 +1,84 @@
+[workspace]
+resolver = "3"
+members = ["src-tauri", "crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+authors = ["rhshourav"]
+repository = "https://github.com/rhshourav/zlip"
+
+# `unsafe` is denied everywhere and re-allowed in exactly one crate
+# (zlip-platform). Portable crates additionally #![forbid(unsafe_code)].
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+
+[workspace.dependencies]
+# internal
+zlip-core = { path = "crates/zlip-core" }
+zlip-config = { path = "crates/zlip-config" }
+zlip-security = { path = "crates/zlip-security" }
+zlip-highlight = { path = "crates/zlip-highlight" }
+zlip-store = { path = "crates/zlip-store" }
+zlip-actions = { path = "crates/zlip-actions" }
+zlip-platform = { path = "crates/zlip-platform" }
+zlip-engine = { path = "crates/zlip-engine" }
+
+# external
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+toml = "1"
+schemars = "1"
+notify = "8"
+heck = "0.5"
+base64 = "0.22"
+unicode-segmentation = "1"
+nucleo-matcher = "0.3"
+url = "2"
+regex = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+png = "0.18"
+zeroize = "1"
+rusqlite = { version = "0.42", features = ["bundled"] }
+chacha20poly1305 = "0.11"
+blake3 = "1"
+getrandom = "0.3"
+sha2 = "0.10"
+tempfile = "3"
+crossbeam-channel = "0.5"
+windows-sys = "0.61"
+syntect = { version = "5", default-features = false, features = ["html", "parsing", "default-syntaxes", "regex-fancy"] }
+sqlparser = "0.64"
+sqlformat = "0.5"
+quick-xml = "0.42"
+syn = { version = "3", features = ["full"] }
+prettyplease = "0.3"
+
+[profile.release]
+panic = "abort"
+lto = "fat"
+codegen-units = 1
+strip = true
+
+# Smaller, faster dev/test builds. `line-tables-only` keeps readable backtraces
+# (file and line) but drops variable-level debug info, which is most of a debug
+# build's size. That also keeps the CI cache small.
+[profile.dev]
+debug = "line-tables-only"
+
+# Dependencies run quicker with a little optimisation and need no debug info.
+[profile.dev.package."*"]
+opt-level = 1
+debug = false
