@@ -51,7 +51,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - name: Check tag format and version consistency
         id: meta
@@ -111,9 +111,9 @@ jobs:
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
       WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
@@ -155,7 +155,7 @@ jobs:
       # DRAFT release together with the updater signatures and latest.json.
       - name: Build, bundle and upload to the draft release
         id: tauri
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0
         with:
           tagName: ${{ needs.prepare.outputs.tag }}
           releaseName: "Zlip ${{ needs.prepare.outputs.tag }}"
@@ -185,7 +185,7 @@ jobs:
 
       # Needs a public repo (or a plan with attestations); never fails a private one.
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@v2
         continue-on-error: ${{ github.event.repository.private == true }}
         with:
           subject-path: ${{ steps.hash.outputs.subjects }}
@@ -382,7 +382,7 @@ jobs:
           Get-ChildItem $dir | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
 
       - name: Keep the manifests as a build artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: winget-manifests
           path: winget-manifests
