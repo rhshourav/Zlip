@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # releases/latest is a 404 until the first release exists, and the page
       # already handles that case, so it is excluded. Fonts and the API are
