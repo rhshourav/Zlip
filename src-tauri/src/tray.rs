@@ -22,6 +22,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         false,
         None::<&str>,
     )?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
+    let repair = MenuItem::with_id(
+        app,
+        "repair",
+        "Shortcut not working? Reconnect",
+        true,
+        None::<&str>,
+    )?;
     let config = MenuItem::with_id(app, "config", "Open settings file", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Zlip", true, None::<&str>)?;
     let menu = Menu::with_items(
@@ -30,6 +38,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &open,
             &PredefinedMenuItem::separator(app)?,
             &private,
+            &settings,
+            &PredefinedMenuItem::separator(app)?,
+            &repair,
             &config,
             &PredefinedMenuItem::separator(app)?,
             &quit,
@@ -52,6 +63,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                     let on = !shared.engine().private_mode();
                     shared.engine().set_private_mode(on);
                     sync_private_mode(app, on);
+                }
+                "settings" => windows::show_settings(&shared),
+                "repair" => {
+                    if let Ok(chords) = shared.cfg.snapshot().hotkeys.global_chords() {
+                        zlip_platform::set_chords(&chords);
+                    }
+                    zlip_platform::request_refresh();
+                    shared.notify("info", "Shortcuts reconnected.");
                 }
                 "config" => {
                     zlip_platform::open_in_shell(&zlip_config::config_path().display().to_string())

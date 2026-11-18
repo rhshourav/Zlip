@@ -1,30 +1,31 @@
 /* ============================================================================
    Zlip design system
-   Tokens first, then base, then the shared pieces. Component styles live in the
-   components. Pastel category colours arrive from the config as --cat-* (these
-   are only the defaults), and light/dark follows Windows unless the config pins it.
+   Quiet by default: neutral surfaces, one blue accent, and the pastel kind colours
+   used only on the small tile that tells you what an item is. Light/dark follows
+   Windows unless the settings pin it. The pastels, glass tint and corner radius
+   arrive from the settings as --cat-*, --tint and --zlip-radius.
    ========================================================================= */
 @import '@fontsource-variable/inter';
 @import '@fontsource-variable/jetbrains-mono';
-@import './icons.css';
 
 :root {
   --font-ui: 'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'Cascadia Mono', Consolas, ui-monospace, monospace;
 
   /* Motion: one curve, two speeds. */
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --dur-fast: 140ms;
-  --dur: 240ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
 
-  /* Shape. Radii derive from the single `corner_radius` setting. */
+  /* Shape. Everything derives from the single `corner_radius` setting (24 by default). */
   --zlip-radius: 24px;
-  --r-lg: calc(var(--zlip-radius) * 0.75);
-  --r-md: calc(var(--zlip-radius) * 0.5);
-  --r-sm: calc(var(--zlip-radius) * 0.33);
+  --r-xs: calc(var(--zlip-radius) * 0.22);
+  --r-sm: calc(var(--zlip-radius) * 0.32);
+  --r-md: calc(var(--zlip-radius) * 0.42);
+  --r-lg: calc(var(--zlip-radius) * 0.56);
   --tint: 0.14;
 
-  /* Category pastels (overridden from the config). */
+  /* Kind colours (overridden from the settings). */
   --cat-text: #c5caf5;
   --cat-link: #a9d6f5;
   --cat-code: #d6c4f5;
@@ -33,52 +34,58 @@
   --cat-file: #f7e3a6;
   --cat-snippet: #bdebd0;
   --cat-sensitive: #f5b5ad;
-  --accent: #8ea2ff;
+  /* Glyph colour on a pastel tile: dark in both themes, so it always reads. */
+  --tile-ink: rgba(26, 28, 40, 0.74);
 
   /* ---- light ---- */
   color-scheme: light;
-  --ink: rgba(22, 24, 36, 0.9);
-  --ink-2: rgba(22, 24, 36, 0.62);
-  --ink-3: rgba(22, 24, 36, 0.42);
-  --hairline: rgba(22, 24, 36, 0.1);
-  --hairline-strong: rgba(22, 24, 36, 0.2);
+  --accent: #0a7aff;
+  --accent-ink: #0063d9;
+  --danger: #d6382e;
+  --ink: rgba(24, 25, 32, 0.92);
+  --ink-2: rgba(24, 25, 32, 0.64);
+  --ink-3: rgba(24, 25, 32, 0.5);
+  --hairline: rgba(24, 25, 32, 0.09);
+  --hairline-strong: rgba(24, 25, 32, 0.18);
   --highlight: rgba(255, 255, 255, 0.7);
   --panel: rgba(255, 255, 255, var(--tint));
-  --panel-solid: #f5f5fa;
-  --field: rgba(255, 255, 255, 0.55);
-  --card: rgba(255, 255, 255, 0.5);
-  --card-hover: rgba(255, 255, 255, 0.72);
-  /* How much of the pastel survives in small kind labels: less on light, so they stay legible. */
-  --kind-mix: 34%;
-  --code-bg: rgba(22, 24, 36, 0.06);
-  --shadow: 0 1px 2px rgba(20, 22, 40, 0.08), 0 8px 24px rgba(20, 22, 40, 0.1);
-  --shadow-selected: 0 2px 4px rgba(20, 22, 40, 0.1), 0 8px 20px rgba(20, 22, 40, 0.14);
+  --panel-solid: #f5f5f9;
+  --field: rgba(24, 25, 32, 0.06);
+  --hover: rgba(24, 25, 32, 0.055);
+  --sel: color-mix(in srgb, var(--accent) 14%, transparent);
+  --group: rgba(255, 255, 255, 0.62);
+  --knob-off: rgba(24, 25, 32, 0.2);
+  --code-bg: rgba(24, 25, 32, 0.055);
+  --shadow: 0 1px 2px rgba(20, 22, 40, 0.08), 0 8px 24px rgba(20, 22, 40, 0.12);
   --syn-keyword: #7a4fd0;
   --syn-string: #1f8a58;
   --syn-number: #b5651d;
   --syn-function: #2468c8;
-  --syn-comment: rgba(22, 24, 36, 0.45);
-  --syn-punct: rgba(22, 24, 36, 0.55);
+  --syn-comment: rgba(24, 25, 32, 0.45);
+  --syn-punct: rgba(24, 25, 32, 0.55);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
+    --accent: #2b8bff;
+    --accent-ink: #6cb4ff;
+    --danger: #ff6b60;
     --ink: rgba(255, 255, 255, 0.93);
-    --ink-2: rgba(255, 255, 255, 0.64);
-    --ink-3: rgba(255, 255, 255, 0.4);
-    --hairline: rgba(255, 255, 255, 0.12);
-    --hairline-strong: rgba(255, 255, 255, 0.24);
-    --highlight: rgba(255, 255, 255, 0.16);
-    --panel: rgba(26, 27, 36, var(--tint));
-    --panel-solid: #1f2029;
-    --field: rgba(255, 255, 255, 0.07);
-    --card: rgba(255, 255, 255, 0.06);
-    --card-hover: rgba(255, 255, 255, 0.1);
-    --kind-mix: 78%;
-    --code-bg: rgba(0, 0, 0, 0.28);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.32);
-    --shadow-selected: 0 2px 4px rgba(0, 0, 0, 0.35), 0 8px 22px rgba(0, 0, 0, 0.4);
+    --ink-2: rgba(255, 255, 255, 0.66);
+    --ink-3: rgba(255, 255, 255, 0.46);
+    --hairline: rgba(255, 255, 255, 0.1);
+    --hairline-strong: rgba(255, 255, 255, 0.2);
+    --highlight: rgba(255, 255, 255, 0.14);
+    --panel: rgba(28, 29, 38, var(--tint));
+    --panel-solid: #202129;
+    --field: rgba(255, 255, 255, 0.08);
+    --hover: rgba(255, 255, 255, 0.07);
+    --sel: color-mix(in srgb, var(--accent) 28%, transparent);
+    --group: rgba(255, 255, 255, 0.07);
+    --knob-off: rgba(255, 255, 255, 0.24);
+    --code-bg: rgba(0, 0, 0, 0.26);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.36);
     --syn-keyword: #d6b8ff;
     --syn-string: #a8e6c1;
     --syn-number: #ffd6a5;
@@ -90,21 +97,24 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
+  --accent: #2b8bff;
+  --accent-ink: #6cb4ff;
+  --danger: #ff6b60;
   --ink: rgba(255, 255, 255, 0.93);
-  --ink-2: rgba(255, 255, 255, 0.64);
-  --ink-3: rgba(255, 255, 255, 0.4);
-  --hairline: rgba(255, 255, 255, 0.12);
-  --hairline-strong: rgba(255, 255, 255, 0.24);
-  --highlight: rgba(255, 255, 255, 0.16);
-  --panel: rgba(26, 27, 36, var(--tint));
-  --panel-solid: #1f2029;
-  --field: rgba(255, 255, 255, 0.07);
-  --card: rgba(255, 255, 255, 0.06);
-  --card-hover: rgba(255, 255, 255, 0.1);
-  --kind-mix: 78%;
-  --code-bg: rgba(0, 0, 0, 0.28);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.32);
-  --shadow-selected: 0 2px 4px rgba(0, 0, 0, 0.35), 0 8px 22px rgba(0, 0, 0, 0.4);
+  --ink-2: rgba(255, 255, 255, 0.66);
+  --ink-3: rgba(255, 255, 255, 0.46);
+  --hairline: rgba(255, 255, 255, 0.1);
+  --hairline-strong: rgba(255, 255, 255, 0.2);
+  --highlight: rgba(255, 255, 255, 0.14);
+  --panel: rgba(28, 29, 38, var(--tint));
+  --panel-solid: #202129;
+  --field: rgba(255, 255, 255, 0.08);
+  --hover: rgba(255, 255, 255, 0.07);
+  --sel: color-mix(in srgb, var(--accent) 28%, transparent);
+  --group: rgba(255, 255, 255, 0.07);
+  --knob-off: rgba(255, 255, 255, 0.24);
+  --code-bg: rgba(0, 0, 0, 0.26);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.36);
   --syn-keyword: #d6b8ff;
   --syn-string: #a8e6c1;
   --syn-number: #ffd6a5;
@@ -131,8 +141,8 @@ body {
   height: 100%;
   background: transparent; /* the OS backdrop is the glass */
   color: var(--ink);
-  font: 400 13px/1.45 var(--font-ui);
-  font-feature-settings: 'cv11', 'ss03'; /* single-storey a, round dots */
+  font: 400 13px/1.4 var(--font-ui);
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
@@ -153,15 +163,19 @@ button {
 }
 
 input,
-textarea {
+textarea,
+select {
   font: inherit;
   color: inherit;
+}
+input,
+textarea {
   user-select: text;
 }
 
 :focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 80%, transparent);
-  outline-offset: 2px;
+  outline: 2px solid color-mix(in srgb, var(--accent) 75%, transparent);
+  outline-offset: 1px;
 }
 
 ::selection {
@@ -171,7 +185,7 @@ textarea {
 /* Thin, quiet scrollbars. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--ink) 22%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ink) 20%, transparent) transparent;
 }
 
 .sr-only {
@@ -183,7 +197,7 @@ textarea {
   white-space: nowrap;
 }
 
-/* Reduced motion, from Windows or from the config, switches animation off entirely. */
+/* Reduced motion, from Windows or from the settings, switches animation off entirely. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -203,19 +217,65 @@ textarea {
 .keycap {
   display: inline-grid;
   place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
   font: 500 10.5px/1 var(--font-ui);
-  letter-spacing: 0.02em;
   color: var(--ink-2);
   background: color-mix(in srgb, var(--ink) 7%, transparent);
-  box-shadow: inset 0 -1px 0 var(--hairline), inset 0 0 0 1px var(--hairline);
+  box-shadow: inset 0 0 0 1px var(--hairline);
 }
 
 .mono {
   font-family: var(--font-mono);
+}
+
+/* Buttons: one quiet style, one accent style, one for destructive actions. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast),
+    transform var(--dur-fast) var(--ease);
+}
+.btn:hover {
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.btn:active {
+  transform: scale(0.97);
+}
+.btn.primary {
+  color: #fff;
+  background: var(--accent);
+}
+.btn.primary:hover {
+  background: color-mix(in srgb, var(--accent) 86%, #000);
+}
+.btn.danger {
+  color: var(--danger);
+}
+.btn.danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+.btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.btn .keycap {
+  color: inherit;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  box-shadow: none;
 }
 
 /* Highlighted code. The class names come from syntect (prefix `z-`); the HTML is

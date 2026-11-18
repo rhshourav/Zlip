@@ -1,0 +1,5 @@
+# `tauri dev` restarts the app when watched files change. Build output must never count,
+# and watching it is what prints the harmless "file watcher error: EBUSY" lines on Windows.
+target
+dist
+node_modules

@@ -1,13 +1,14 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { ov } from '../lib/overlay.svelte';
 </script>
 
 {#if ov.notice}
   {#key ov.notice}
-    <div class="toast {ov.notice.level}" role="status" aria-live="polite">
-      <span class="mark"></span>
+    <div class="toast {ov.notice.level}" class:low={ov.view === 'settings'} role="status" aria-live="polite">
+      <span class="mark" aria-hidden="true"></span>
       <span class="msg">{ov.notice.message}</span>
-      <button class="dismiss" onclick={() => ov.dismissNotice()}>Dismiss</button>
+      <button class="dismiss" onclick={() => ov.dismissNotice()} aria-label="Dismiss"><Icon name="x" size={12} /></button>
     </div>
   {/key}
 {/if}
@@ -15,35 +16,40 @@
 <style>
   .toast {
     position: absolute;
-    left: 14px;
-    right: 14px;
-    bottom: 46px;
-    z-index: 5;
+    left: 10px;
+    right: 10px;
+    bottom: 44px;
+    z-index: 7;
     display: flex;
-    gap: 10px;
+    gap: 9px;
     align-items: flex-start;
-    padding: 10px 12px 10px 14px;
+    padding: 9px 8px 9px 12px;
     border-radius: var(--r-md);
-    font-size: 12.5px;
+    font-size: 12px;
     line-height: 1.4;
-    background: color-mix(in srgb, var(--panel-solid) 88%, transparent);
-    border: 1px solid var(--hairline-strong);
-    box-shadow: var(--shadow);
+    background: color-mix(in srgb, var(--panel-solid) 94%, transparent);
+    backdrop-filter: blur(24px) saturate(1.4);
+    box-shadow:
+      0 0 0 1px var(--hairline-strong),
+      var(--shadow);
     animation: pop var(--dur) var(--ease) both;
+  }
+  .toast.low {
+    bottom: 10px;
   }
   .mark {
     flex: none;
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     margin-top: 5px;
     border-radius: 50%;
-    background: var(--cat-snippet);
+    background: #34c759;
   }
   .warn .mark {
-    background: var(--cat-file);
+    background: #ff9f0a;
   }
   .error .mark {
-    background: var(--cat-sensitive);
+    background: var(--danger);
   }
   .msg {
     flex: 1;
@@ -54,15 +60,16 @@
     overflow: auto;
   }
   .dismiss {
+    display: grid;
+    place-items: center;
     flex: none;
-    padding: 2px 8px;
-    border-radius: var(--r-sm);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--ink-2);
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    color: var(--ink-3);
   }
   .dismiss:hover {
-    background: color-mix(in srgb, var(--ink) 10%, transparent);
+    background: var(--hover);
     color: var(--ink);
   }
   @keyframes pop {

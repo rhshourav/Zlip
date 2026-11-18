@@ -66,8 +66,10 @@ quick-xml = "0.42"
 syn = { version = "3", features = ["full"] }
 prettyplease = "0.3"
 
+# Panics unwind (not abort) on purpose: Zlip is a resident utility, and the
+# controller catches a failed handler so the shortcut keeps working afterwards.
 [profile.release]
-panic = "abort"
+panic = "unwind"
 lto = "fat"
 codegen-units = 1
 strip = true

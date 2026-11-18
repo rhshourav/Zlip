@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Slot from './Slot.svelte';
+  import Icon from './Icon.svelte';
   import { ov } from '../lib/overlay.svelte';
 
   let input: HTMLInputElement | undefined = $state();
@@ -8,63 +8,71 @@
     input?.select();
   }
 
-  const placeholder = $derived(
-    ov.privateMode ? 'Private: copies are not saved' : ov.queue.mode !== 'idle' ? 'Search' : 'Search your clipboard'
-  );
+  const placeholder = $derived(ov.privateMode ? 'Search (nothing you copy is being saved)' : 'Search');
 </script>
 
 <!-- Search sits first and is always focused: you can start typing the instant the overlay opens. -->
-<div class="bar" class:private={ov.privateMode}>
-  <Slot name="search" size={18} />
-  <input
-    bind:this={input}
-    type="text"
-    role="searchbox"
-    aria-label="Search clipboard history"
-    {placeholder}
-    autocomplete="off"
-    spellcheck="false"
-    value={ov.query}
-    oninput={(e) => ov.setQuery(e.currentTarget.value)}
-  />
-
-  {#if ov.queue.mode !== 'idle'}
-    <button class="chip queue" onclick={() => void ov.clearQueue()} title="Clear the paste queue" aria-label="Clear the paste queue ({ov.queue.len} items)">
-      <Slot name="queue" size={14} />
-      <span>{ov.queue.mode === 'collecting' ? 'Collecting' : 'Pasting'} · {ov.queue.len}</span>
-      <Slot name="clear" size={12} />
-    </button>
-  {/if}
-
-  <button
-    class="chip toggle"
-    aria-pressed={ov.privateMode}
-    onclick={() => void ov.setPrivate(!ov.privateMode)}
-    title="Private mode pauses capturing. Nothing you copy is saved while it is on."
-  >
-    <Slot name="private" size={14} />
-    <span>Private</span>
+<div class="top">
+  <div class="field">
+    <Icon name="search" size={15} />
+    <input
+      bind:this={input}
+      type="text"
+      role="searchbox"
+      aria-label="Search clipboard history"
+      {placeholder}
+      autocomplete="off"
+      spellcheck="false"
+      value={ov.query}
+      oninput={(e) => ov.setQuery(e.currentTarget.value)}
+    />
+    <!-- Status tags only exist while they are true, so the bar stays empty the rest of the time. -->
+    {#if ov.queue.mode !== 'idle'}
+      <button class="tag" onclick={() => void ov.clearQueue()} title="Clear the paste queue" aria-label="Clear the paste queue ({ov.queue.len} items)">
+        <Icon name="queue" size={12} />
+        {ov.queue.mode === 'collecting' ? 'Collecting' : 'Pasting'}
+        {ov.queue.len}
+        <Icon name="x" size={10} />
+      </button>
+    {/if}
+    {#if ov.privateMode}
+      <button class="tag" onclick={() => void ov.setPrivate(false)} title="Private mode is on. Click to turn it off." aria-label="Private mode is on. Turn it off">
+        <Icon name="lock" size={12} />
+        Private
+      </button>
+    {/if}
+  </div>
+  <button class="gear" onclick={() => void ov.openSettings()} title="Settings" aria-label="Settings">
+    <Icon name="sliders" size={17} />
   </button>
 </div>
 
 <style>
-  .bar {
+  .top {
     display: flex;
     align-items: center;
-    gap: 10px;
-    height: 46px;
-    padding: 0 8px 0 14px;
-    border-radius: var(--r-lg);
-    background: var(--field);
-    border: 1px solid var(--hairline);
-    box-shadow: inset 0 1px 0 var(--highlight);
-    color: var(--ink-2);
-    transition: border-color var(--dur-fast), box-shadow var(--dur) var(--ease), background var(--dur-fast);
+    gap: 4px;
   }
-  .bar:focus-within {
-    border-color: color-mix(in srgb, var(--accent) 65%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent), inset 0 1px 0 var(--highlight);
-    color: var(--ink);
+  .field {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 6px 0 10px;
+    border-radius: var(--r-md);
+    background: var(--field);
+    color: var(--ink-3);
+    transition:
+      box-shadow var(--dur) var(--ease),
+      color var(--dur-fast);
+  }
+  .field:focus-within {
+    color: var(--ink-2);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
   }
   input {
     flex: 1;
@@ -73,39 +81,43 @@
     border: 0;
     outline: 0;
     background: transparent;
-    font-size: 14.5px;
-    letter-spacing: -0.005em;
+    font-size: 13.5px;
     color: var(--ink);
   }
   input::placeholder {
     color: var(--ink-3);
   }
-  .chip {
+  .tag {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 10px;
+    gap: 5px;
+    flex: none;
+    height: 22px;
+    padding: 0 8px;
     border-radius: 999px;
-    font-size: 11.5px;
-    font-weight: 550;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent-ink);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    transition: background var(--dur-fast);
+  }
+  .tag:hover {
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+  .gear {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--r-md);
     color: var(--ink-2);
-    background: color-mix(in srgb, var(--ink) 6%, transparent);
-    transition: background var(--dur-fast), color var(--dur-fast);
+    transition:
+      background var(--dur-fast),
+      color var(--dur-fast);
   }
-  .chip:hover {
-    background: color-mix(in srgb, var(--ink) 11%, transparent);
+  .gear:hover {
+    background: var(--hover);
     color: var(--ink);
-  }
-  .queue {
-    color: var(--ink);
-    background: color-mix(in srgb, var(--cat-snippet) 35%, transparent);
-  }
-  .toggle[aria-pressed='true'] {
-    color: var(--ink);
-    background: color-mix(in srgb, var(--cat-code) 50%, transparent);
-  }
-  .private {
-    border-color: color-mix(in srgb, var(--cat-code) 55%, var(--hairline));
   }
 </style>

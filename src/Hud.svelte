@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Slot from './components/Slot.svelte';
+  import Icon from './components/Icon.svelte';
   import { api, listen } from './lib/api';
   import { applyTheme } from './lib/theme';
   import { chordCaps } from './lib/chords';
@@ -33,7 +33,7 @@
 
 <!-- Click-through status pill: it never takes focus or clicks from the app you are pasting into. -->
 <div class="pill" class:draining={q.mode === 'draining'} role="status" aria-live="polite">
-  <span class="mark"><span class="pulse"></span><Slot name={q.mode === 'draining' ? 'queue-draining' : 'queue-collecting'} size={16} /></span>
+  <span class="mark"><span class="pulse"></span><Icon name="queue" size={14} /></span>
   <span class="text">
     <strong>{title}</strong>
     <span class="next">{hint}</span>
@@ -50,8 +50,9 @@
     padding: 0 16px 0 14px;
     border-radius: 18px;
     background: color-mix(in srgb, var(--panel-solid) 90%, transparent);
-    border: 1px solid var(--hairline-strong);
-    box-shadow: var(--shadow), inset 0 1px 0 var(--highlight);
+    box-shadow:
+      0 0 0 1px var(--hairline-strong),
+      var(--shadow);
     --c: var(--cat-code);
   }
   .pill.draining {

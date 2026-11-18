@@ -1,9 +1,9 @@
 <script lang="ts">
-  import Slot from './Slot.svelte';
+  import Icon from './Icon.svelte';
   import QuickEditor from './QuickEditor.svelte';
+  import type { IconName } from '../lib/icons';
   import { formatAge, formatBytes, formatCountdown } from '../lib/time';
-  import { CATEGORY_NAME } from '../lib/types';
-  import type { ItemDetail, ItemView } from '../lib/types';
+  import type { Category, ItemDetail, ItemView } from '../lib/types';
 
   interface Props {
     item: ItemView;
@@ -33,14 +33,27 @@
 
   let { item, index, selected, expanded, editing, detail, thumb, revealed, loadedAt, now, ...on }: Props = $props();
 
+  // One glyph per kind, on a soft tile in that kind's colour. The tile replaces the old
+  // uppercase label, the coloured dot and the accent bar: one small mark says it all.
+  const GLYPH: Record<Category, IconName> = { text: 'text', link: 'link', code: 'code', image: 'image', color: 'swatch', file: 'file', snippet: 'bolt', sensitive: 'lock' };
+
   const remaining = $derived(item.expires_in_ms === null ? null : Math.max(0, item.expires_in_ms - (now - loadedAt)));
   // A snippet's preview is "title\nfirst line of body": show the title as a title.
   const snippetTitle = $derived(item.preview.split('\n')[0] ?? '');
   const snippetBody = $derived(item.preview.split('\n').slice(1).join(' '));
   const isText = $derived(item.category !== 'image' && item.category !== 'sensitive');
+  const title = $derived(item.category === 'image' ? (item.width && item.height ? `${item.width} × ${item.height}` : 'Image') : item.preview);
+  const sub = $derived(
+    [
+      item.category === 'link' || item.category === 'code' || item.category === 'file' ? item.label : null,
+      item.source_app,
+      remaining !== null ? `Wiped in ${formatCountdown(remaining)}` : item.read_only ? null : formatAge(item.created_at_ms, now)
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  );
   const meta = $derived(
     [
-      item.source_app,
       item.size_bytes ? formatBytes(item.size_bytes) : null,
       detail && item.category !== 'image' && item.category !== 'file' && item.category !== 'sensitive'
         ? `${detail.char_count.toLocaleString()} chars · ${detail.line_count} ${detail.line_count === 1 ? 'line' : 'lines'}`
@@ -52,55 +65,49 @@
   );
 </script>
 
-<!-- A card is one option in a listbox. Whole-card click pastes; the controls inside do their own thing. -->
+<!-- A row is one option in a listbox. Clicking it pastes; the controls inside do their own thing. -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-  class="card"
+  class="row"
   class:expanded
   role="option"
   tabindex="-1"
   aria-selected={selected}
+  id="item-{item.id}"
   data-id={item.id}
-  style="--cat: var(--cat-{item.category}); --i: {Math.min(index, 8)}"
+  style="--cat: var(--cat-{item.category})"
   onpointermove={on.onselect}
   onclick={on.onpaste}
 >
-  <header>
-    <span class="kind"><span class="dot"></span>{CATEGORY_NAME[item.category]}</span>
-    {#if item.label}<span class="label">{item.label}</span>{/if}
-    <span class="spacer"></span>
-    {#if item.pinned}<span class="badge" title="Pinned"><Slot name="pin" size={12} />Pinned</span>{/if}
-    {#if item.queue_position !== null}<span class="badge q">#{item.queue_position}</span>{/if}
-    {#if index < 9 && selected}<span class="keycap" title="Quick paste">Alt {index + 1}</span>{/if}
-    {#if remaining === null && !item.read_only}<time class="age">{formatAge(item.created_at_ms, now)}</time>{/if}
-  </header>
+  <span class="tile" class:swatch={item.category === 'color'} style:--sw={item.color ?? undefined} aria-hidden="true">
+    {#if item.category !== 'color'}<Icon name={GLYPH[item.category]} size={16} />{/if}
+  </span>
 
-  <div class="body" class:none={item.category === 'image' && expanded && !!detail?.image}>
-    {#if item.category === 'color'}
-      <span class="swatch" style:--sw={item.color ?? 'transparent'}></span>
-      <span class="hex mono">{item.preview}</span>
-    {:else if item.category === 'image'}
-      <!-- Once the full-size preview is showing below, the thumbnail would just repeat it. -->
-      {#if expanded && detail?.image}
-        <!-- nothing: the header already says the dimensions -->
-      {:else if thumb}<img class="thumb" src={thumb} alt="Copied item, {item.width} by {item.height} pixels" />{:else}<span class="thumb skeleton"></span>{/if}
-    {:else if item.category === 'sensitive'}
-      <Slot name="lock" size={16} />
-      <span class="masked">{item.preview}</span>
-      {#if remaining !== null}
-        <span class="count" title="Wiped from memory automatically">{formatCountdown(remaining)}</span>
-      {/if}
-    {:else if item.category === 'snippet'}
-      <div class="snippet">
-        <strong>{snippetTitle}</strong>
-        {#if snippetBody}<span class="mono">{snippetBody}</span>{/if}
-      </div>
-    {:else if item.category === 'code' && item.preview_html}
-      <!-- eslint-disable-next-line svelte/no-at-html-tags -- HTML escaped and highlighted by zlip-highlight in Rust -->
-      <pre class="code hl">{@html item.preview_html}</pre>
+  <div class="main">
+    {#if item.category === 'snippet'}
+      <p class="title strong">{snippetTitle}</p>
+      {#if snippetBody}<p class="sub mono">{snippetBody}</p>{/if}
     {:else}
-      <p class="text" class:mono={item.category === 'code' || item.category === 'file'}>{item.preview}</p>
+      {#if item.category === 'code' && item.preview_html}
+        <!-- eslint-disable-next-line svelte/no-at-html-tags -- HTML escaped and highlighted by zlip-highlight in Rust -->
+        <pre class="title code hl">{@html item.preview_html}</pre>
+      {:else}
+        <p class="title" class:mono={item.category === 'color' || item.category === 'file'} class:masked={item.category === 'sensitive'}>{title}</p>
+      {/if}
+      {#if item.category === 'image' && !(expanded && detail?.image)}
+        {#if thumb}<img class="thumb" src={thumb} alt="Copied image, {item.width} by {item.height} pixels" />{:else}<span class="thumb skeleton"></span>{/if}
+      {/if}
+      {#if sub}<p class="sub">{sub}</p>{/if}
     {/if}
+  </div>
+
+  <div class="aside">
+    {#if item.pinned}<span class="mark" title="Pinned"><Icon name="pin" size={12} /></span>{/if}
+    {#if item.queue_position !== null}<span class="mark qn" title="Position in the paste queue">#{item.queue_position}</span>{/if}
+    {#if index < 9 && selected && !expanded}<span class="keycap" title="Quick paste">Alt {index + 1}</span>{/if}
+    <button class="chev" aria-label={expanded ? 'Collapse' : 'Expand'} aria-expanded={expanded} tabindex="-1" onclick={(e) => { e.stopPropagation(); on.onexpand(); }}>
+      <span class="chev-glyph" class:up={expanded}><Icon name="chevron-down" size={14} /></span>
+    </button>
   </div>
 
   {#if remaining !== null}
@@ -129,264 +136,203 @@
               <span class="skeleton line"></span>
             {/if}
             {#if detail?.truncated}<p class="note">Showing the start. The full text is still what gets pasted.</p>{/if}
-            {#if meta}<p class="meta">{meta}</p>{/if}
+            {#if meta}<p class="note">{meta}</p>{/if}
 
             <div class="actions">
-              <button class="primary" onclick={on.onpaste}>Paste <span class="keycap">↵</span></button>
-              {#if isText}<button onclick={on.onplain}>Plain <span class="keycap">⇧↵</span></button>{/if}
-              <button onclick={on.onqueue}><Slot name="queue" size={14} />Queue</button>
+              <button class="btn primary" onclick={on.onpaste}>Paste <span class="keycap">↵</span></button>
+              {#if isText}<button class="btn" onclick={on.onplain}>Plain <span class="keycap">⇧↵</span></button>{/if}
+              <button class="btn" onclick={on.onqueue}><Icon name="queue" size={13} />Queue</button>
               {#if !item.read_only && item.category !== 'sensitive'}
-                <button onclick={on.onpin}><Slot name="pin" size={14} />{item.pinned ? 'Unpin' : 'Pin'}</button>
+                <button class="btn" onclick={on.onpin}><Icon name="pin" size={13} />{item.pinned ? 'Unpin' : 'Pin'}</button>
               {/if}
-              {#if detail?.editable_text != null}<button onclick={on.onedit}><Slot name="edit" size={14} />Edit</button>{/if}
+              {#if detail?.editable_text != null}<button class="btn" onclick={on.onedit}><Icon name="edit" size={13} />Edit</button>{/if}
               {#if item.category === 'sensitive'}
-                <button onclick={on.onreveal}><Slot name="reveal" size={14} />{revealed !== null ? 'Hide' : 'Reveal 8 s'}</button>
+                <button class="btn" onclick={on.onreveal}><Icon name="eye" size={13} />{revealed !== null ? 'Hide' : 'Reveal 8 s'}</button>
               {/if}
               {#each detail?.actions ?? [] as name (name)}
-                <button onclick={() => on.onaction(name)}><Slot name="action" size={14} />{name}</button>
+                <button class="btn" onclick={() => on.onaction(name)}><Icon name="bolt" size={13} />{name}</button>
               {/each}
-              {#if !item.read_only}<button class="danger" onclick={on.ondelete}><Slot name="delete" size={14} />Delete</button>{/if}
+              {#if !item.read_only}<button class="btn danger" onclick={on.ondelete}><Icon name="trash" size={13} />Delete</button>{/if}
             </div>
           {/if}
         </div>
       {/if}
     </div>
   </div>
-
-  <button class="chev" aria-label={expanded ? 'Collapse' : 'Expand'} aria-expanded={expanded} tabindex="-1" onclick={(e) => { e.stopPropagation(); on.onexpand(); }}>
-    <Slot name="chevron" size={14} />
-    <span class="chev-glyph"></span>
-  </button>
 </div>
 
 <style>
-  .card {
+  .row {
     position: relative;
-    padding: 10px 40px 10px 16px;
-    border-radius: var(--r-lg);
-    background: var(--card);
-    border: 1px solid var(--hairline);
-    box-shadow: inset 0 1px 0 var(--highlight);
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    column-gap: 10px;
+    align-items: start;
+    padding: 7px 8px;
+    border-radius: var(--r-md);
     cursor: pointer;
-    transition: background var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
-    animation: rise var(--dur) var(--ease) both;
-    animation-delay: calc(var(--i) * 16ms);
+    transition: background var(--dur-fast);
     content-visibility: auto;
-    contain-intrinsic-size: auto 78px;
+    contain-intrinsic-size: auto 50px;
   }
-  /* The pastel accent bar is what ties a card to its tab above. */
-  .card::before {
-    content: '';
-    position: absolute;
-    left: 6px;
-    top: 11px;
-    bottom: 11px;
-    width: 3px;
-    border-radius: 3px;
-    background: var(--cat);
+  .row:hover {
+    background: var(--hover);
   }
-  .card:hover {
-    background: var(--card-hover);
-  }
-  .card[aria-selected='true'] {
-    background: color-mix(in srgb, var(--cat) 13%, var(--card-hover));
-    border-color: color-mix(in srgb, var(--cat) 58%, var(--hairline));
-    box-shadow: var(--shadow-selected), inset 0 1px 0 var(--highlight);
-    transform: translateY(-1px);
-  }
-  @keyframes rise {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
+  .row[aria-selected='true'] {
+    background: var(--sel);
   }
 
-  header {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    min-height: 20px;
-    font-size: 11px;
-    color: var(--ink-3);
+  /* ---- the kind tile ---- */
+  .tile {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--cat) 88%, transparent);
+    color: var(--tile-ink);
   }
-  .kind {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 650;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--cat) var(--kind-mix), var(--ink));
-  }
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--cat);
-  }
-  .label {
-    font-weight: 500;
-    color: var(--ink-2);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-  .label::before {
-    content: '·';
-    margin-right: 7px;
-    color: var(--ink-3);
-  }
-  .spacer {
-    flex: 1;
-  }
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 18px;
-    padding: 0 7px;
-    border-radius: 999px;
-    font-size: 10.5px;
-    font-weight: 600;
-    color: var(--ink);
-    background: color-mix(in srgb, var(--cat-file) 45%, transparent);
-  }
-  .badge.q {
-    background: color-mix(in srgb, var(--cat-snippet) 55%, transparent);
-    font-variant-numeric: tabular-nums;
-  }
-  .age {
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+  .tile.swatch {
+    background: var(--sw, transparent);
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.14);
   }
 
-  .body {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 5px;
+  /* ---- text ---- */
+  .main {
     min-width: 0;
   }
-  .body.none {
-    display: none;
-  }
-  .text {
+  .title {
     margin: 0;
-    font-size: 13.5px;
-    line-height: 1.42;
-    letter-spacing: -0.004em;
+    font-size: 13px;
+    line-height: 1.38;
     color: var(--ink);
+    overflow: hidden;
     display: -webkit-box;
+    -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
     overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
-  .text.mono {
-    font-size: 12.5px;
-    letter-spacing: 0;
+  .title.strong {
+    font-weight: 600;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
   }
-  .code {
-    margin: 0;
-    font: 12.5px/1.5 var(--font-mono);
-    white-space: pre;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-height: 3em;
-    min-width: 0;
-    flex: 1;
-    color: var(--ink);
-  }
-  .snippet {
-    display: grid;
-    gap: 1px;
-    min-width: 0;
-  }
-  .snippet strong {
-    font-size: 13.5px;
-    font-weight: 620;
-    letter-spacing: -0.004em;
-  }
-  .snippet span {
+  .title.mono {
     font-size: 12px;
+  }
+  .title.masked {
+    letter-spacing: 0.12em;
     color: var(--ink-2);
+  }
+  .title.code {
+    font: 12px/1.45 var(--font-mono);
+    max-height: calc(1.45em * 2);
+  }
+  .sub {
+    margin: 1px 0 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--ink-3);
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .swatch {
-    flex: none;
-    width: 40px;
-    height: 40px;
-    border-radius: var(--r-md);
-    /* Checkerboard under the colour so transparent values read as transparent. */
-    background:
-      linear-gradient(var(--sw), var(--sw)),
-      conic-gradient(#0002 25%, #0000 0 50%, #0002 0 75%, #0000 0) 0 0 / 10px 10px;
-    box-shadow: inset 0 0 0 1px var(--hairline-strong);
-  }
-  .hex {
-    font-size: 13px;
-    letter-spacing: 0.02em;
   }
   .thumb {
     display: block;
     max-width: 100%;
-    max-height: 76px;
-    border-radius: var(--r-sm);
-    box-shadow: 0 0 0 1px var(--hairline);
+    max-height: 72px;
+    margin-top: 4px;
+    border-radius: var(--r-xs);
     object-fit: cover;
+    box-shadow: 0 0 0 1px var(--hairline);
   }
   .thumb.skeleton {
     width: 120px;
-    height: 68px;
+    height: 56px;
   }
   .skeleton {
-    background: linear-gradient(90deg, var(--code-bg), color-mix(in srgb, var(--ink) 10%, transparent), var(--code-bg)) 0 0 / 200% 100%;
+    background: linear-gradient(90deg, var(--hover), color-mix(in srgb, var(--ink) 12%, transparent), var(--hover));
+    background-size: 200% 100%;
     animation: shimmer 1.4s linear infinite;
-    border-radius: var(--r-sm);
   }
-  .line {
+  .skeleton.line {
     display: block;
-    height: 14px;
-    width: 70%;
+    height: 12px;
+    border-radius: 6px;
   }
   @keyframes shimmer {
     to {
       background-position: -200% 0;
     }
   }
-  .masked {
-    font-weight: 550;
-    letter-spacing: 0.01em;
+
+  /* ---- right side ---- */
+  .aside {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    color: var(--ink-3);
+    font-size: 11px;
   }
-  .count {
-    margin-left: auto;
-    font: 600 11px/1 var(--font-ui);
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    color: var(--ink-3);
+  }
+  .qn {
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
-    color: color-mix(in srgb, var(--cat-sensitive) 60%, var(--ink));
+    color: var(--accent-ink);
   }
-  /* A hairline that drains over the secret's lifetime. */
+  .chev {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    color: var(--ink-3);
+    opacity: 0;
+    transition:
+      opacity var(--dur-fast),
+      background var(--dur-fast);
+  }
+  .row:hover .chev,
+  .row[aria-selected='true'] .chev,
+  .chev:focus-visible {
+    opacity: 1;
+  }
+  .chev:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+  .chev-glyph {
+    display: grid;
+    transition: transform var(--dur) var(--ease);
+  }
+  .chev-glyph.up {
+    transform: rotate(180deg);
+  }
+
+  /* A hairline that drains over a secret's lifetime. */
   .drain {
     position: absolute;
-    left: 14px;
-    right: 14px;
-    bottom: 4px;
+    left: 8px;
+    right: 8px;
+    bottom: 2px;
     height: 2px;
     border-radius: 2px;
-    background: color-mix(in srgb, var(--cat-sensitive) 35%, transparent);
+    background: color-mix(in srgb, var(--cat-sensitive) 70%, transparent);
     transform-origin: left;
     transform: scaleX(var(--p));
     transition: transform 1s linear;
   }
 
+  /* ---- expanded ---- */
   .more {
+    grid-column: 1 / -1;
     display: grid;
     grid-template-rows: 0fr;
     transition: grid-template-rows var(--dur) var(--ease);
@@ -395,62 +341,59 @@
     grid-template-rows: 1fr;
   }
   .more-inner {
-    overflow: hidden;
     min-height: 0;
+    overflow: hidden;
   }
   .detail {
     display: grid;
-    gap: 9px;
-    padding-top: 10px;
+    gap: 8px;
+    padding-top: 8px;
     cursor: default;
   }
   .full {
     margin: 0;
-    max-height: 230px;
+    max-height: 190px;
     overflow: auto;
-    padding: 10px 12px;
-    border-radius: var(--r-md);
+    padding: 8px 10px;
+    border-radius: var(--r-sm);
     background: var(--code-bg);
-    font: 12px/1.55 var(--font-mono);
-    white-space: pre;
+    font: 12px/1.5 var(--font-mono);
     user-select: text;
+    white-space: pre;
   }
   .full.wrap {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    font: 13px/1.5 var(--font-ui);
+    font-family: var(--font-ui);
+    font-size: 12.5px;
   }
   img.full {
-    padding: 0;
+    display: block;
     max-width: 100%;
+    max-height: 220px;
+    padding: 0;
     object-fit: contain;
-  }
-  .files {
-    margin: 0;
-    padding: 8px 12px;
-    list-style: none;
-    max-height: 150px;
-    overflow: auto;
-    border-radius: var(--r-md);
     background: var(--code-bg);
-    font-size: 11.5px;
-    line-height: 1.6;
-    user-select: text;
-  }
-  .files li {
-    overflow-wrap: anywhere;
   }
   .secret {
     margin: 0;
-    padding: 10px 12px;
-    border-radius: var(--r-md);
+    padding: 8px 10px;
+    border-radius: var(--r-sm);
     background: color-mix(in srgb, var(--cat-sensitive) 22%, transparent);
-    font-size: 12.5px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+    font-size: 12px;
     user-select: text;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
-  .meta,
+  .files {
+    margin: 0;
+    padding: 8px 10px 8px 24px;
+    border-radius: var(--r-sm);
+    background: var(--code-bg);
+    font-size: 11.5px;
+    max-height: 120px;
+    overflow: auto;
+  }
   .note {
     margin: 0;
     font-size: 11px;
@@ -460,70 +403,5 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-  }
-  .actions button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 10px;
-    border-radius: var(--r-sm);
-    font-size: 12px;
-    font-weight: 550;
-    background: color-mix(in srgb, var(--ink) 7%, transparent);
-    transition: background var(--dur-fast), transform var(--dur-fast) var(--ease);
-  }
-  .actions button:hover {
-    background: color-mix(in srgb, var(--ink) 13%, transparent);
-  }
-  .actions button:active {
-    transform: scale(0.97);
-  }
-  .actions .primary {
-    background: color-mix(in srgb, var(--cat) 45%, transparent);
-  }
-  .actions .primary:hover {
-    background: color-mix(in srgb, var(--cat) 62%, transparent);
-  }
-  .actions .danger:hover {
-    background: color-mix(in srgb, var(--cat-sensitive) 55%, transparent);
-  }
-  .keycap {
-    min-width: 18px;
-    height: 17px;
-    padding: 0 5px;
-    font-size: 10px;
-  }
-
-  .chev {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    color: var(--ink-3);
-    transition: background var(--dur-fast), color var(--dur-fast), transform var(--dur) var(--ease);
-  }
-  .chev:hover {
-    background: color-mix(in srgb, var(--ink) 10%, transparent);
-    color: var(--ink);
-  }
-  .expanded .chev {
-    transform: rotate(180deg);
-  }
-  .chev > :global(*) {
-    grid-area: 1 / 1;
-  }
-  /* A drawn chevron until you map the `chevron` slot (see icons.css). */
-  .chev-glyph {
-    display: var(--fallback-chevron, block);
-    width: 7px;
-    height: 7px;
-    border-right: 1.6px solid currentColor;
-    border-bottom: 1.6px solid currentColor;
-    transform: translateY(-2px) rotate(45deg);
   }
 </style>

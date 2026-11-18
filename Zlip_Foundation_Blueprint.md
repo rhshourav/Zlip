@@ -53,7 +53,7 @@ Chips use the pastel at 24% alpha with a solid 6 px dot, and the category name i
 
 ### 1.4 Wireframe (macro layout only)
 
-Default 440 × 640, configurable. It opens beside the text caret when one is detectable, otherwise bottom-centre of the active monitor with a 24 px gap. *Why:* the paste target is where the eyes already are. `▢` marks a reserved 20 px slot; its contents are yours to assign.
+Default 360 × 500 (Compact 320 × 420, Large 420 × 600 from the Settings screen). It opens beside the text caret when one is detectable, otherwise bottom-centre of the active monitor with a 24 px gap. *Why:* the paste target is where the eyes already are. Each row carries one small tile in its kind's colour instead of a label, dot and accent bar.
 
 ```
 ┌────────────────────────────────────────────┐
@@ -146,7 +146,9 @@ zlip/
 
 ### 2.3 Global hook and runtime model
 
-**Why not `RegisterHotKey` or `rdev`:** the shell owns `Win+V`, so `RegisterHotKey` cannot claim it. A low-level keyboard hook (`WH_KEYBOARD_LL`) sees the key first and can swallow it. `rdev::grab` wraps the same API but hides the injected-event flag and the Start-menu masking we need, so Zlip calls windows-rs directly.
+**Why not `RegisterHotKey` or `rdev`:** the shell owns `Win+V`, so `RegisterHotKey` cannot claim it. A low-level keyboard hook (`WH_KEYBOARD_LL`) sees the key first and can swallow it. `rdev::grab` wraps the same API but hides the injected-event flag and the Start-menu masking we need, so Zlip calls windows-rs directly. 
+
+**Keeping the shortcut alive.** The hook never asks Windows whether a key it swallowed is down: a swallowed key never reaches the OS key-state table, so the hook tracks that key itself and swallows its auto-repeat until the key-up (asking the OS made a held `V` re-fire the hotkey and flip the overlay open and shut). Windows can also drop a low-level hook without telling anyone, so a second, independent shortcut (`Ctrl+Alt+V` by default) is registered with `RegisterHotKey`, which the OS never removes; using it also schedules a hook refresh, and the tray and Settings both have a "Reconnect" action. On the shell side the controller never queues a hotkey behind slow work (clipboard capture has its own thread), runs each handler inside `catch_unwind`, ignores an open/close request that follows the last one within 250 ms, and re-checks that the overlay really got focus after it is shown.
 
 Two dedicated OS threads run Win32 message loops: **hook** and **listener** (`AddClipboardFormatListener` on a message-only window). Both only classify an event and send it down a channel. Windows silently removes a low-level hook whose callback exceeds its timeout (a few hundred ms), so callbacks must return in microseconds. A 5-second watchdog re-installs the hook if its heartbeat stops.
 

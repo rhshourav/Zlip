@@ -57,6 +57,8 @@ impl Default for Config {
 pub struct Hotkeys {
     /// Global: show or hide the overlay.
     pub open_overlay: String,
+    /// Global: a second shortcut that opens the overlay even if the main one stops responding. Leave empty to turn it off.
+    pub open_overlay_backup: String,
     /// Global: start collecting copies, press again to start pasting them in order.
     pub queue_collect: String,
     /// Global, only while a queue is being pasted: paste the next queued item.
@@ -86,6 +88,7 @@ impl Default for Hotkeys {
         let s = |v: &str| v.to_owned();
         Self {
             open_overlay: s("Win+V"),
+            open_overlay_backup: s("Ctrl+Alt+V"),
             queue_collect: s("Ctrl+Shift+Q"),
             queue_paste: s("Ctrl+V"),
             paste_plain: s("Shift+Enter"),
@@ -105,14 +108,22 @@ impl Default for Hotkeys {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlobalChords {
     pub open_overlay: Chord,
+    /// `None` when the backup shortcut is turned off (empty in the config).
+    pub open_overlay_backup: Option<Chord>,
     pub queue_collect: Chord,
     pub queue_paste: Chord,
 }
 
 impl Hotkeys {
     pub fn global_chords(&self) -> Result<GlobalChords, ParseError> {
+        let backup = self.open_overlay_backup.trim();
         Ok(GlobalChords {
             open_overlay: self.open_overlay.parse()?,
+            open_overlay_backup: if backup.is_empty() {
+                None
+            } else {
+                Some(backup.parse::<Chord>()?)
+            },
             queue_collect: self.queue_collect.parse()?,
             queue_paste: self.queue_paste.parse()?,
         })
@@ -248,8 +259,8 @@ pub struct Ui {
 impl Default for Ui {
     fn default() -> Self {
         Self {
-            width: 440,
-            height: 640,
+            width: 360,
+            height: 500,
             position: Position::Caret,
             search_limit: 50,
             close_on_blur: true,
@@ -512,6 +523,26 @@ impl Config {
                 Err(e) => bad(&format!("hotkeys.{name}"), e.to_string()),
             }
         }
+        let backup = h.open_overlay_backup.trim();
+        if !backup.is_empty() {
+            match backup.parse::<Chord>() {
+                Ok(c) if c.mods.is_empty() => bad(
+                    "hotkeys.open_overlay_backup",
+                    format!(
+                        "`{backup}` needs a modifier: a bare key would be swallowed system-wide"
+                    ),
+                ),
+                Ok(c) => {
+                    if let Some((other, _)) = global.iter().find(|(_, o)| *o == c) {
+                        bad(
+                            "hotkeys.open_overlay_backup",
+                            format!("`{backup}` is already used by hotkeys.{other}"),
+                        );
+                    }
+                }
+                Err(e) => bad("hotkeys.open_overlay_backup", e.to_string()),
+            }
+        }
         if let Err(e) = h.quick_paste.parse::<QuickPaste>() {
             bad("hotkeys.quick_paste", e.to_string());
         }
@@ -753,6 +784,33 @@ mod tests {
                 .any(|m| m.starts_with("hotkeys.queue_paste") && m.contains("already used")),
             "{v:?}"
         );
+    }
+
+    #[test]
+    fn the_backup_shortcut_is_optional_but_must_be_valid_and_distinct() {
+        // Empty means "off".
+        let cfg: Config = toml::from_str("[hotkeys]\nopen_overlay_backup = \"\"").unwrap();
+        assert_eq!(cfg.validate(), vec![]);
+        assert_eq!(
+            cfg.hotkeys.global_chords().unwrap().open_overlay_backup,
+            None
+        );
+        // The default is on.
+        let on = Config::default().hotkeys.global_chords().unwrap();
+        assert!(on.open_overlay_backup.is_some());
+        // A bare key, a typo and a clash are all reported.
+        for (value, why) in [
+            ("V", "modifier"),
+            ("Ctrl+Nope", "unknown key"),
+            ("Win+V", "already used"),
+        ] {
+            let v = issues(&format!("[hotkeys]\nopen_overlay_backup = \"{value}\""));
+            assert!(
+                v.iter()
+                    .any(|m| m.starts_with("hotkeys.open_overlay_backup") && m.contains(why)),
+                "{value}: {v:?}"
+            );
+        }
     }
 
     #[test]

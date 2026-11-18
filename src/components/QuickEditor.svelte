@@ -34,9 +34,9 @@
 <div class="editor">
   <textarea bind:this={area} bind:value {onkeydown} spellcheck="false" rows="5" aria-label="Edit before pasting"></textarea>
   <div class="row" bind:this={row}>
-    <button class="primary" onclick={() => onpaste(value)}>Paste edited <span class="keycap">Ctrl</span><span class="keycap">↵</span></button>
-    <button onclick={() => onsave(value)}>Save as new <span class="keycap">Ctrl</span><span class="keycap">S</span></button>
-    <button class="quiet" onclick={oncancel}>Cancel <span class="keycap">Esc</span></button>
+    <button class="btn primary" onclick={() => onpaste(value)}>Paste edited <span class="keycap">Ctrl ↵</span></button>
+    <button class="btn" onclick={() => onsave(value)}>Save as new <span class="keycap">Ctrl S</span></button>
+    <button class="btn" onclick={oncancel}>Cancel <span class="keycap">Esc</span></button>
   </div>
 </div>
 
@@ -51,46 +51,18 @@
     min-height: 84px;
     max-height: 280px;
     padding: 10px 12px;
-    border-radius: var(--r-md);
-    border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--hairline));
+    border-radius: var(--r-sm);
+    border: 0;
     background: var(--code-bg);
-    font: 12.5px/1.55 var(--font-mono);
+    font: 12px/1.55 var(--font-mono);
     outline: 0;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
   }
   .row {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
-  }
-  button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 10px;
-    border-radius: var(--r-sm);
-    font-size: 12px;
-    font-weight: 550;
-    background: color-mix(in srgb, var(--ink) 8%, transparent);
-    transition: background var(--dur-fast);
-  }
-  button:hover {
-    background: color-mix(in srgb, var(--ink) 14%, transparent);
-  }
-  .primary {
-    background: color-mix(in srgb, var(--accent) 42%, transparent);
-  }
-  .primary:hover {
-    background: color-mix(in srgb, var(--accent) 56%, transparent);
-  }
-  .quiet {
-    background: transparent;
-    color: var(--ink-2);
-  }
-  .keycap {
-    min-width: 18px;
-    height: 17px;
-    font-size: 10px;
   }
 </style>

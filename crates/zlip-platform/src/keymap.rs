@@ -46,6 +46,27 @@ pub fn encode(chord: Chord) -> u32 {
     (u32::from(chord.mods.bits()) << 16) | vk_for(chord.key)
 }
 
+/// The Win32 `MOD_*` flags (`RegisterHotKey`) for a modifier bit set. Zlip's bits
+/// are Ctrl 1, Alt 2, Shift 4, Win 8; Windows uses Alt 1, Ctrl 2, Shift 4, Win 8.
+#[must_use]
+pub fn win_hotkey_mods(bits: u8) -> u32 {
+    let m = Mods::from_bits(bits);
+    let mut out = 0;
+    if m.contains(Mods::CTRL) {
+        out |= 0x0002; // MOD_CONTROL
+    }
+    if m.contains(Mods::ALT) {
+        out |= 0x0001; // MOD_ALT
+    }
+    if m.contains(Mods::SHIFT) {
+        out |= 0x0004; // MOD_SHIFT
+    }
+    if m.contains(Mods::WIN) {
+        out |= 0x0008; // MOD_WIN
+    }
+    out
+}
+
 /// Exact match: the pressed modifiers must equal the chord's, so `Ctrl+Shift+Q`
 /// does not fire on `Ctrl+Q` and `Win+V` does not fire on `Win+Shift+V`.
 #[must_use]
@@ -85,6 +106,18 @@ mod tests {
         let q = encode(chord("Ctrl+Shift+Q"));
         assert!(matches(q, Mods::CTRL | Mods::SHIFT, 0x51));
         assert!(!matches(q, Mods::CTRL, 0x51));
+    }
+
+    #[test]
+    fn modifier_bits_map_to_the_win32_flags() {
+        assert_eq!(win_hotkey_mods(Mods::CTRL.bits()), 0x0002);
+        assert_eq!(win_hotkey_mods(Mods::ALT.bits()), 0x0001);
+        assert_eq!(
+            win_hotkey_mods((Mods::CTRL | Mods::ALT).bits()),
+            0x0002 | 0x0001
+        );
+        assert_eq!(win_hotkey_mods((Mods::SHIFT | Mods::WIN).bits()), 0x000C);
+        assert_eq!(win_hotkey_mods(Mods::NONE.bits()), 0);
     }
 
     #[test]

@@ -11,8 +11,10 @@ use crate::{
     state::{Control, Notice, Shared},
     windows,
 };
+use serde::Serialize;
 use std::{sync::Arc, time::Instant};
 use tauri::State;
+use zlip_config::Config;
 use zlip_core::{Category, ItemId, Transform};
 use zlip_engine::{
     CaptureOutcome, PasteOptions, SearchQuery,
@@ -164,6 +166,71 @@ pub async fn take_notice(shared: Shr<'_>) -> CmdResult<Option<Notice>> {
 #[tauri::command]
 pub async fn hide_overlay(shared: Shr<'_>) -> CmdResult<()> {
     windows::hide_overlay(&shared);
+    Ok(())
+}
+
+/// Everything the settings screen shows: the saved settings plus facts about this install.
+#[derive(Debug, Serialize)]
+pub struct SettingsView {
+    pub config: Config,
+    pub version: &'static str,
+    pub config_path: String,
+    pub log_dir: String,
+    /// `off`, `active` or `unavailable` (Windows refused the backup shortcut).
+    pub backup_shortcut: &'static str,
+}
+
+#[tauri::command]
+pub async fn get_settings(shared: Shr<'_>) -> CmdResult<SettingsView> {
+    Ok(SettingsView {
+        config: (*shared.cfg.snapshot()).clone(),
+        version: env!("CARGO_PKG_VERSION"),
+        config_path: zlip_config::config_path().display().to_string(),
+        log_dir: zlip_config::data_dir().join("logs").display().to_string(),
+        backup_shortcut: zlip_platform::backup_state().as_str(),
+    })
+}
+
+/// Validate, save and apply new settings. Nothing is written unless every value is valid,
+/// and the error lists every problem (not just the first).
+#[tauri::command]
+pub async fn save_settings(shared: Shr<'_>, settings: Config) -> CmdResult<()> {
+    let issues = settings.validate();
+    if !issues.is_empty() {
+        return Err(issues
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n"));
+    }
+    shared.mark_self_write();
+    zlip_config::save_config(&zlip_config::config_path(), &settings).map_err(|e| e.to_string())?;
+    shared.cfg.set(settings.clone());
+    windows::apply_live(&shared, &settings);
+    Ok(())
+}
+
+/// "My shortcut stopped working": re-read the shortcuts and replace the keyboard hook.
+#[tauri::command]
+pub async fn repair_shortcuts(shared: Shr<'_>) -> CmdResult<()> {
+    let cfg = shared.cfg.snapshot();
+    let chords = cfg.hotkeys.global_chords().map_err(|e| e.to_string())?;
+    zlip_platform::set_chords(&chords);
+    zlip_platform::request_refresh();
+    tracing::info!("keyboard hook refresh requested from the settings screen");
+    Ok(())
+}
+
+/// Pause the global shortcuts while the settings screen records a new one.
+#[tauri::command]
+pub async fn pause_shortcuts(paused: bool) -> CmdResult<()> {
+    zlip_platform::set_paused(paused);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_logs() -> CmdResult<()> {
+    zlip_platform::open_in_shell(&zlip_config::data_dir().join("logs").display().to_string());
     Ok(())
 }
 

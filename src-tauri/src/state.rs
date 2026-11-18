@@ -7,7 +7,7 @@ use std::{
         Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering::SeqCst},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tauri::AppHandle;
 use zlip_config::ConfigHandle;
@@ -42,6 +42,10 @@ pub struct Shared {
     pub paste_lock: Mutex<()>,
     overlay_shown_at: Mutex<Option<Instant>>,
     overlay_focused: AtomicBool,
+    /// When the open/close hotkey last took effect (see [`Shared::accept_toggle`]).
+    last_toggle: Mutex<Option<Instant>>,
+    /// When Zlip itself last wrote the settings file (see [`Shared::was_self_write`]).
+    self_write_at: Mutex<Option<Instant>>,
     native_backdrop: AtomicBool,
     notice: Mutex<Option<Notice>>,
 }
@@ -63,6 +67,8 @@ impl Shared {
             paste_lock: Mutex::new(()),
             overlay_shown_at: Mutex::new(None),
             overlay_focused: AtomicBool::new(false),
+            last_toggle: Mutex::new(None),
+            self_write_at: Mutex::new(None),
             native_backdrop: AtomicBool::new(false),
             notice: Mutex::new(None),
         }
@@ -106,6 +112,39 @@ impl Shared {
     }
     pub fn overlay_focused(&self) -> bool {
         self.overlay_focused.load(SeqCst)
+    }
+
+    /// `false` when this open/close request follows the previous one too closely to be
+    /// a deliberate second press (key auto-repeat, a double tap, the backup shortcut
+    /// firing next to the main one). Such repeats must not flip the overlay back.
+    pub fn accept_toggle(&self) -> bool {
+        const MIN_GAP: Duration = Duration::from_millis(250);
+        let mut last = self
+            .last_toggle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let now = Instant::now();
+        if last.is_some_and(|t| now.duration_since(t) < MIN_GAP) {
+            return false;
+        }
+        *last = Some(now);
+        true
+    }
+
+    /// Call right before Zlip writes the settings file itself.
+    pub fn mark_self_write(&self) {
+        *self
+            .self_write_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+    }
+
+    /// `true` if the file change the watcher just reported is Zlip's own write.
+    pub fn was_self_write(&self) -> bool {
+        self.self_write_at
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(3))
     }
 
     pub fn set_native_backdrop(&self, on: bool) {

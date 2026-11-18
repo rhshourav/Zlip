@@ -26,6 +26,7 @@
         "expand": "Tab",
         "next_category": "Ctrl+Right",
         "open_overlay": "Win+V",
+        "open_overlay_backup": "Ctrl+Alt+V",
         "paste_plain": "Shift+Enter",
         "pin": "Ctrl+P",
         "prev_category": "Ctrl+Left",
@@ -109,11 +110,11 @@
       "$ref": "#/$defs/Ui",
       "default": {
         "close_on_blur": true,
-        "height": 640,
+        "height": 500,
         "hint_hide_after": 5,
         "position": "caret",
         "search_limit": 50,
-        "width": 440
+        "width": 360
       }
     }
   },
@@ -267,6 +268,11 @@
           "description": "Global: show or hide the overlay.",
           "type": "string",
           "default": "Win+V"
+        },
+        "open_overlay_backup": {
+          "description": "Global: a second shortcut that opens the overlay even if the main one stops responding. Leave empty to turn it off.",
+          "type": "string",
+          "default": "Ctrl+Alt+V"
         },
         "paste_plain": {
           "description": "In the overlay: paste the selected item as plain text.",
@@ -536,7 +542,7 @@
           "description": "Overlay height in pixels.",
           "type": "integer",
           "format": "uint32",
-          "default": 640,
+          "default": 500,
           "maximum": 1200,
           "minimum": 360
         },
@@ -563,7 +569,7 @@
           "description": "Overlay width in pixels.",
           "type": "integer",
           "format": "uint32",
-          "default": 440,
+          "default": 360,
           "maximum": 900,
           "minimum": 320
         }

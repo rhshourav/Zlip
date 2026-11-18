@@ -1,7 +1,10 @@
 //! Foreground window, caret, monitor and focus handling.
 
-use super::util::from_wide;
-use crate::WindowHandle;
+use super::{
+    input::{key_input, send},
+    util::from_wide,
+};
+use crate::{WindowHandle, keymap::VK_MASK};
 use std::{mem::size_of, ptr::null_mut};
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HWND, POINT},
@@ -13,11 +16,14 @@ use windows_sys::Win32::{
         AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
         QueryFullProcessImageNameW,
     },
-    UI::WindowsAndMessaging::{
-        BringWindowToTop, GUITHREADINFO, GWL_EXSTYLE, GetCursorPos, GetForegroundWindow,
-        GetGUIThreadInfo, GetWindowLongPtrW, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
-        SW_SHOWNOACTIVATE, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW,
+    UI::{
+        Input::KeyboardAndMouse::KEYEVENTF_KEYUP,
+        WindowsAndMessaging::{
+            BringWindowToTop, GUITHREADINFO, GWL_EXSTYLE, GetCursorPos, GetForegroundWindow,
+            GetGUIThreadInfo, GetWindowLongPtrW, GetWindowTextW, GetWindowThreadProcessId,
+            IsWindow, SW_SHOWNOACTIVATE, SetForegroundWindow, SetWindowLongPtrW, ShowWindow,
+            WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        },
     },
 };
 use zlip_core::geometry::Rect;
@@ -153,7 +159,10 @@ pub fn work_area_for(fg: WindowHandle) -> Rect {
 
 /// Bring `target` to the foreground even though this process did not receive
 /// the last input event (Windows' "foreground lock" normally refuses that).
-/// Briefly sharing input state with the current foreground thread lifts the lock.
+///
+/// Two things lift the lock: this process being the last to *provide input*, and
+/// sharing input state with the current foreground thread. Both are used. The
+/// input is a tap of an unassigned key, which no program reacts to.
 pub fn force_foreground(target: WindowHandle) {
     if target.is_null() {
         return;
@@ -161,10 +170,11 @@ pub fn force_foreground(target: WindowHandle) {
     let target = hwnd(target);
     // SAFETY: every call below accepts arbitrary window handles and fails harmlessly.
     unsafe {
-        let fg = GetForegroundWindow();
-        if fg == target {
+        if GetForegroundWindow() == target {
             return;
         }
+        let _ = send(&[key_input(VK_MASK, 0), key_input(VK_MASK, KEYEVENTF_KEYUP)]);
+        let fg = GetForegroundWindow();
         let me = GetCurrentThreadId();
         let fg_thread = if fg.is_null() {
             0

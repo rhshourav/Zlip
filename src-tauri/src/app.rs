@@ -10,7 +10,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{Emitter, Manager, RunEvent};
+use tauri::{Manager, RunEvent};
 use zlip_config::{
     Config, ConfigHandle, ConfigWatcher, ReloadEvent, config_dir, config_path, data_dir,
     load_or_create, write_atomic,
@@ -18,7 +18,7 @@ use zlip_config::{
 use zlip_engine::Engine;
 use zlip_platform::{
     HookHandle, ListenerHandle, PlatformEvent, SystemClipboard, load_or_create_master_key,
-    set_chords, start_hook, start_listener,
+    start_hook, start_listener,
 };
 use zlip_store::{MasterKey, Store, StoreError};
 
@@ -95,6 +95,11 @@ pub fn run() {
             commands::take_notice,
             commands::hide_overlay,
             commands::open_config,
+            commands::get_settings,
+            commands::save_settings,
+            commands::repair_shortcuts,
+            commands::pause_shortcuts,
+            commands::open_logs,
             commands::run_action,
             commands::trust_action,
         ])
@@ -207,19 +212,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let reload_shared = Arc::clone(&shared);
     let watcher = zlip_config::watch(config_path(), handle, move |event| match event {
         ReloadEvent::Reloaded(cfg) => {
-            if let Ok(chords) = cfg.hotkeys.global_chords() {
-                set_chords(&chords);
+            windows::apply_live(&reload_shared, &cfg);
+            // The settings screen saves the file itself and already shows the result.
+            if !reload_shared.was_self_write() {
+                reload_shared.notify("info", "Settings reloaded.");
             }
-            windows::apply_config(&reload_shared.app, &cfg);
-            let ui = {
-                let os = reload_shared.os_info();
-                reload_shared.engine().ui_config(os)
-            };
-            let _ = reload_shared.app.emit_to("overlay", "zlip:config", ui);
-            let _ = reload_shared
-                .app
-                .emit_to("overlay", "zlip:items-changed", ());
-            reload_shared.notify("info", "Settings reloaded.");
         }
         ReloadEvent::Rejected(why) => {
             reload_shared.notify(

@@ -9,6 +9,8 @@ import type {
   ItemView,
   Notice,
   QueueView,
+  Settings,
+  SettingsView,
   StatusView,
   Transform,
   UiConfig
@@ -50,6 +52,11 @@ export const api = {
   takeNotice: () => call<Notice | null>('take_notice'),
   hideOverlay: () => call<void>('hide_overlay'),
   openConfig: () => call<void>('open_config'),
+  openLogs: () => call<void>('open_logs'),
+  getSettings: () => call<SettingsView>('get_settings'),
+  saveSettings: (settings: Settings) => call<void>('save_settings', { settings }),
+  repairShortcuts: () => call<void>('repair_shortcuts'),
+  pauseShortcuts: (paused: boolean) => call<void>('pause_shortcuts', { paused }),
   runAction: (id: number, name: string) => call<ActionReport>('run_action', { id, name }),
   trustAction: (name: string, sha256: string) => call<void>('trust_action', { name, sha256 })
 };

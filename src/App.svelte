@@ -1,14 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import CategoryRail from './components/CategoryRail.svelte';
-  import FolderRow from './components/FolderRow.svelte';
-  import HintFooter from './components/HintFooter.svelte';
+  import FilterBar from './components/FilterBar.svelte';
+  import Footer from './components/Footer.svelte';
   import ItemCard from './components/ItemCard.svelte';
   import SearchBar from './components/SearchBar.svelte';
+  import Settings from './components/Settings.svelte';
   import Toast from './components/Toast.svelte';
-  import TransformBar from './components/TransformBar.svelte';
   import { api } from './lib/api';
-  import { type Chord, matchesChord, parseChord, parseQuickPaste, quickPasteIndex } from './lib/chords';
+  import { type Chord, chordCaps, matchesChord, parseChord, parseQuickPaste, quickPasteIndex } from './lib/chords';
   import { recordHintUse } from './lib/hints';
   import { ov } from './lib/overlay.svelte';
 
@@ -28,10 +27,10 @@
     return () => ov.destroy();
   });
 
-  // Opening the overlay always lands the caret in the search box.
+  // Opening the overlay (or coming back from Settings) always lands the caret in the search box.
   $effect(() => {
     void ov.shownTick;
-    void tick().then(() => search?.focus());
+    if (ov.view === 'list') void tick().then(() => search?.focus());
   });
 
   // Keep the selected card on screen as the selection moves.
@@ -75,6 +74,12 @@
       if (hint) recordHintUse(hint);
     };
     const bare = !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+
+    // Settings: only "back" applies. A shortcut being recorded owns every key, Escape included.
+    if (ov.view === 'settings') {
+      if (!ov.recording && hit(keys.close)) return did(), void ov.back();
+      return;
+    }
 
     if (hit(keys.close)) return did(), void ov.back();
     if (e.key === 'ArrowDown' && bare) return did(), ov.move(1);
@@ -124,108 +129,117 @@
 <svelte:window onkeydown={onKeydown} />
 
 <main class="panel" aria-label="Zlip clipboard">
-  <SearchBar bind:this={search} />
-  <CategoryRail />
-  <FolderRow />
+  {#if ov.view === 'settings'}
+    <Settings />
+  {:else}
+    <SearchBar bind:this={search} />
+    <FilterBar />
 
-  <div class="list" role="listbox" tabindex="-1" aria-label="Clipboard items" aria-activedescendant={ov.selectedId === null ? undefined : `item-${ov.selectedId}`} bind:this={listEl}>
-    {#each ov.items as item, i (item.id)}
-      <ItemCard
-        {item}
-        index={i}
-        selected={item.id === ov.selectedId}
-        expanded={item.id === ov.expandedId}
-        editing={ov.editing && item.id === ov.expandedId}
-        detail={ov.details[item.id]}
-        thumb={ov.thumbs[item.id]}
-        revealed={ov.revealed?.id === item.id ? ov.revealed.text : null}
-        loadedAt={ov.loadedAt}
-        {now}
-        onselect={() => ov.select(item.id)}
-        onpaste={() => void ov.pasteSelected()}
-        onplain={() => void ov.pasteSelected(true)}
-        onexpand={() => void ov.toggleExpand()}
-        onpin={() => void ov.togglePin()}
-        ondelete={() => void ov.remove()}
-        onqueue={() => void ov.queueAddSelected()}
-        onedit={() => void ov.startEdit()}
-        onreveal={() => (ov.revealed?.id === item.id ? ov.hideSecret() : void ov.reveal(item.id))}
-        onaction={(name) => void runAction(item.id, name)}
-        onpasteedited={(t) => void ov.pasteEdited(t)}
-        onsaveedited={(t) => void ov.saveEdited(t)}
-        oncanceledit={() => (ov.editing = false)}
-      />
-    {:else}
-      <div class="empty">
-        {#if ov.query}
-          <strong>Nothing matches “{ov.query}”</strong>
-          <span>Try fewer letters: search tolerates gaps, so “dkr” finds “docker”.</span>
-        {:else if ov.folder}
-          <strong>This folder is empty</strong>
-          <span>Add snippets to your settings file, or pin items with <span class="keycap">Ctrl</span><span class="keycap">P</span>.</span>
-        {:else if ov.privateMode}
-          <strong>Private mode is on</strong>
-          <span>Nothing you copy is being saved.</span>
-        {:else}
-          <strong>Your clipboard history will appear here</strong>
-          <span>Copy something, then press <span class="keycap">Win</span><span class="keycap">V</span>.</span>
-        {/if}
-      </div>
-    {/each}
-  </div>
+    <div class="list" role="listbox" tabindex="-1" aria-label="Clipboard items" aria-activedescendant={ov.selectedId === null ? undefined : `item-${ov.selectedId}`} bind:this={listEl}>
+      {#each ov.items as item, i (item.id)}
+        <ItemCard
+          {item}
+          index={i}
+          selected={item.id === ov.selectedId}
+          expanded={item.id === ov.expandedId}
+          editing={ov.editing && item.id === ov.expandedId}
+          detail={ov.details[item.id]}
+          thumb={ov.thumbs[item.id]}
+          revealed={ov.revealed?.id === item.id ? ov.revealed.text : null}
+          loadedAt={ov.loadedAt}
+          {now}
+          onselect={() => ov.select(item.id)}
+          onpaste={() => void ov.pasteSelected()}
+          onplain={() => void ov.pasteSelected(true)}
+          onexpand={() => void ov.toggleExpand()}
+          onpin={() => void ov.togglePin()}
+          ondelete={() => void ov.remove()}
+          onqueue={() => void ov.queueAddSelected()}
+          onedit={() => void ov.startEdit()}
+          onreveal={() => (ov.revealed?.id === item.id ? ov.hideSecret() : void ov.reveal(item.id))}
+          onaction={(name) => void runAction(item.id, name)}
+          onpasteedited={(t) => void ov.pasteEdited(t)}
+          onsaveedited={(t) => void ov.saveEdited(t)}
+          oncanceledit={() => (ov.editing = false)}
+        />
+      {:else}
+        <div class="empty">
+          {#if ov.query}
+            <strong>No results for “{ov.query}”</strong>
+            <span>Search tolerates gaps, so “dkr” finds “docker”.</span>
+          {:else if ov.folder}
+            <strong>This folder is empty</strong>
+            <span>Pin items with <span class="keycap">Ctrl</span><span class="keycap">P</span> or add snippets in your settings file.</span>
+          {:else if ov.privateMode}
+            <strong>Private mode is on</strong>
+            <span>Nothing you copy is being saved.</span>
+          {:else}
+            <strong>Nothing copied yet</strong>
+            <span>Copy something, then press {#each chordCaps(ov.config?.hotkeys.open_overlay ?? 'Win+V') as c, i (i)}<span class="keycap">{c}</span>{/each}</span>
+          {/if}
+        </div>
+      {/each}
+    </div>
 
-  <TransformBar />
-  <HintFooter />
+    <Footer />
+  {/if}
   <Toast />
 </main>
 
 <style>
   .panel {
     position: relative;
-    display: grid;
-    /* minmax(0, 1fr): children shrink to the window instead of stretching it. */
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
-    gap: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     height: 100%;
-    padding: 14px 14px 10px;
-    /* The OS draws the blurred backdrop; this layer adds tint, a soft top sheen and a lit edge. */
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 38%), var(--panel);
-    border: 1px solid var(--hairline-strong);
+    padding: 10px 8px 0;
+    /* The OS draws the blurred backdrop; this layer adds the tint and a lit edge. */
+    background: var(--panel);
+    box-shadow:
+      inset 0 0 0 1px var(--hairline-strong),
+      inset 0 1px 0 var(--highlight);
     border-radius: 8px; /* matches the radius Windows 11 gives the window */
-    box-shadow: inset 0 1px 0 var(--highlight);
+    overflow: hidden;
   }
   :global(:root[data-rounded='no']) .panel {
     border-radius: 0;
   }
 
   .list {
+    flex: 1;
+    min-height: 0;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     align-content: start;
-    gap: 6px;
+    gap: 1px;
     overflow-y: auto;
-    /* Room for the selected card's shadow, which the scroll container would otherwise clip. */
-    padding: 6px 12px 16px 10px;
-    margin: -2px -12px -10px -10px;
-    scrollbar-gutter: stable;
+    /* Let the list use the panel's full width: the scrollbar sits in the padding. */
+    margin: 0 -6px;
+    padding: 2px 6px 8px;
   }
 
   .empty {
     display: grid;
-    gap: 6px;
+    gap: 4px;
     justify-items: center;
     align-content: center;
-    min-height: 220px;
+    min-height: 180px;
     padding: 24px;
     text-align: center;
     color: var(--ink-3);
-    font-size: 12.5px;
+    font-size: 12px;
     animation: fade var(--dur) var(--ease) both;
   }
   .empty strong {
     color: var(--ink-2);
-    font-size: 14px;
+    font-size: 13.5px;
     font-weight: 600;
+  }
+  .empty span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
   }
   @keyframes fade {
     from {

@@ -75,6 +75,8 @@ export type ActionReport =
 
 export interface Hotkeys {
   open_overlay: string;
+  /** A second shortcut that works even if the first stops responding. Empty = off. */
+  open_overlay_backup: string;
   queue_collect: string;
   queue_paste: string;
   paste_plain: string;
@@ -102,6 +104,28 @@ export interface UiConfig {
   ui: { width: number; height: number; position: 'caret' | 'center'; search_limit: number; close_on_blur: boolean; hint_hide_after: number };
   os: { rounded: boolean; native_backdrop: boolean; transparency: boolean; dark: boolean };
   action_names: string[];
+}
+
+/** The whole settings file, as the Settings screen edits it. Sections it does not show are carried through untouched. */
+export interface Settings {
+  schema: number;
+  hotkeys: Hotkeys;
+  theme: UiConfig['theme'];
+  ui: UiConfig['ui'];
+  retention: { max_items: number; max_age: string; max_image_mb: number; max_text_kb: number };
+  security: { sensitive_ttl_secs: number; min_token_len: number; min_entropy_bits: number; blacklist_exes: string[]; blacklist_titles: string[] };
+  snippet_folders: unknown[];
+  actions: unknown[];
+  automations: unknown[];
+}
+
+export interface SettingsView {
+  config: Settings;
+  version: string;
+  config_path: string;
+  log_dir: string;
+  /** `unavailable`: Windows refused the backup shortcut (another program uses it). */
+  backup_shortcut: 'off' | 'active' | 'unavailable';
 }
 
 export interface Notice {

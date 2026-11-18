@@ -14,13 +14,16 @@ use zlip_config::{Config, Position};
 use zlip_core::geometry::place_overlay;
 use zlip_platform::{
     Backdrop, WindowHandle, apply_native_backdrop, apps_use_light_theme, caret_rect,
-    force_foreground, set_noactivate_toolwindow, show_no_activate, work_area_for,
+    force_foreground, foreground_window, set_noactivate_toolwindow, show_no_activate,
+    work_area_for,
 };
 
 /// Breathing room between the overlay and the caret / screen edge, in pixels.
 const GAP: i32 = 12;
 /// Ignore a focus loss this soon after showing (Windows can bounce focus once).
 const BLUR_GRACE: Duration = Duration::from_millis(200);
+/// How long to wait before checking that a freshly opened overlay really has focus.
+const FOCUS_RETRY: Duration = Duration::from_millis(80);
 
 /// The Win32 handle of a Tauri window (0 if unavailable).
 pub fn native_handle(w: &WebviewWindow) -> WindowHandle {
@@ -119,10 +122,29 @@ pub fn show_overlay(shared: &Arc<Shared>, foreground: WindowHandle) {
         let _ = w.set_position(PhysicalPosition::new(p.x, p.y));
     }
     shared.mark_overlay_shown();
+    let _ = w.set_always_on_top(true);
     let _ = w.show();
-    force_foreground(native_handle(&w));
+    let me = native_handle(&w);
+    force_foreground(me);
     let _ = w.set_focus();
     let _ = shared.app.emit_to("overlay", "zlip:overlay-shown", ());
+
+    // Windows sometimes refuses the first focus request (the "foreground lock").
+    // Check shortly after and try again, so the search box always receives the keys.
+    let (shared, w) = (Arc::clone(shared), w.clone());
+    let _ = std::thread::Builder::new()
+        .name("zlip-focus".into())
+        .spawn(move || {
+            for _ in 0..4 {
+                std::thread::sleep(FOCUS_RETRY);
+                if !overlay_visible(&shared) || foreground_window() == me {
+                    return;
+                }
+                tracing::debug!("overlay did not get focus, retrying");
+                force_foreground(me);
+                let _ = w.set_focus();
+            }
+        });
 }
 
 pub fn hide_overlay(shared: &Shared) {
@@ -131,8 +153,21 @@ pub fn hide_overlay(shared: &Shared) {
     }
 }
 
+/// Open the settings screen (from the tray). Opens the overlay first if it is hidden.
+pub fn show_settings(shared: &Arc<Shared>) {
+    show_overlay(shared, WindowHandle(0));
+    let _ = shared.app.emit_to("overlay", "zlip:open-settings", ());
+}
+
+/// The open/close hotkey. Pressing it while the overlay is up and focused closes it;
+/// pressing it while the overlay is up but *not* focused brings it forward instead,
+/// so it can never get stuck on screen out of reach of the keyboard.
 pub fn toggle_overlay(shared: &Arc<Shared>, foreground: WindowHandle) {
-    if overlay_visible(shared) {
+    if !shared.accept_toggle() {
+        tracing::debug!("open/close hotkey ignored: too soon after the last one");
+        return;
+    }
+    if overlay_visible(shared) && shared.overlay_focused() {
         hide_overlay(shared);
     } else {
         show_overlay(shared, foreground);
@@ -147,6 +182,21 @@ pub fn apply_config(app: &AppHandle, cfg: &Config) {
             f64::from(cfg.ui.height),
         ));
     }
+}
+
+/// Make a new, valid config take effect everywhere: shortcuts, window size, the UI.
+/// Used after the settings file is edited by hand and after the settings screen saves.
+pub fn apply_live(shared: &Shared, cfg: &Config) {
+    if let Ok(chords) = cfg.hotkeys.global_chords() {
+        zlip_platform::set_chords(&chords);
+    }
+    apply_config(&shared.app, cfg);
+    let ui = {
+        let os = shared.os_info();
+        shared.engine().ui_config(os)
+    };
+    let _ = shared.app.emit_to("overlay", "zlip:config", ui);
+    let _ = shared.app.emit_to("overlay", "zlip:items-changed", ());
 }
 
 /// Show or hide the HUD to match the paste queue, and tell it what to display.
@@ -187,7 +237,9 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
         WindowEvent::Focused(true) => shared.set_overlay_focused(true),
         WindowEvent::Focused(false) => {
             let settled = shared.overlay_shown_for().is_some_and(|d| d > BLUR_GRACE);
-            if shared.cfg.snapshot().ui.close_on_blur && shared.overlay_focused() && settled {
+            let was_focused = shared.overlay_focused();
+            shared.set_overlay_focused(false);
+            if shared.cfg.snapshot().ui.close_on_blur && was_focused && settled {
                 hide_overlay(&shared);
             }
         }

@@ -148,3 +148,44 @@ export function chordCaps(text: string): string[] {
   caps.push(SYMBOL[key] ?? key);
   return caps;
 }
+
+/**
+ * The shortcut text for a key press while recording ("Ctrl+Alt+V"), or null for a lone
+ * modifier or a key Zlip cannot bind. The Windows key is added by the caller: the
+ * browser never reliably sees it, because Windows handles most Win combinations first.
+ */
+export function chordFromEvent(e: Pick<KeyboardEvent, 'ctrlKey' | 'altKey' | 'shiftKey' | 'key' | 'code'>, win = false): string | null {
+  const key = eventKey(e);
+  if (!key) return null;
+  const parts: string[] = [];
+  if (win) parts.push('Win');
+  if (e.ctrlKey) parts.push('Ctrl');
+  if (e.altKey) parts.push('Alt');
+  if (e.shiftKey) parts.push('Shift');
+  parts.push(key);
+  return parts.join('+');
+}
+
+export function hasWin(text: string): boolean {
+  return splitMods(text)?.mods.meta ?? false;
+}
+
+/** The same shortcut with the Windows key switched on or off. */
+export function withWin(text: string, on: boolean): string {
+  const s = splitMods(text);
+  if (!s) return text;
+  const key = canonicalKey(s.key) ?? s.key;
+  const parts: string[] = [];
+  if (on) parts.push('Win');
+  if (s.mods.ctrl) parts.push('Ctrl');
+  if (s.mods.alt) parts.push('Alt');
+  if (s.mods.shift) parts.push('Shift');
+  parts.push(key);
+  return parts.join('+');
+}
+
+/** A global shortcut needs at least one modifier, or it would swallow a plain key everywhere. */
+export function hasModifier(text: string): boolean {
+  const s = splitMods(text);
+  return !!s && (s.mods.ctrl || s.mods.alt || s.mods.shift || s.mods.meta);
+}

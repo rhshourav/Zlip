@@ -14,5 +14,13 @@ pub fn init(dir: &Path) -> WorkerGuard {
         .with_writer(writer)
         .with_ansi(false)
         .try_init();
+    // A panic on a background thread is otherwise invisible (there is no console in
+    // release builds). Put it in the log, with the thread name and location.
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        tracing::error!(thread = thread.name().unwrap_or("unnamed"), "panic: {info}");
+        previous(info);
+    }));
     guard
 }

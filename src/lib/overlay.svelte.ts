@@ -3,13 +3,15 @@
 import { api, listen } from './api';
 import { applyTheme } from './theme';
 import { CATEGORY_ORDER } from './types';
-import type { Category, FolderView, ItemDetail, ItemView, Notice, QueueView, Transform, UiConfig } from './types';
+import type { Category, FolderView, ItemDetail, ItemView, Notice, QueueView, Settings, SettingsView, Transform, UiConfig } from './types';
 
 /** Only one of each group can be active: you pick *a* casing, *a* Base64 direction. */
 const CASING: Transform[] = ['camel_case', 'pascal_case', 'snake_case', 'kebab_case', 'screaming_snake_case', 'upper', 'lower'];
 const BASE64: Transform[] = ['base64_decode', 'base64_encode'];
 
 const REVEAL_MS = 8000;
+/** Settings save themselves this long after the last change. */
+const SAVE_DELAY_MS = 300;
 const NOTICE_MS = { info: 3200, warn: 6000, error: 9000 } as const;
 
 class Overlay {
@@ -34,6 +36,15 @@ class Overlay {
   revealed = $state<{ id: number; text: string } | null>(null);
   /** Bumped on every show so the view can re-focus the search box. */
   shownTick = $state(0);
+  /** Which screen is showing. */
+  view = $state<'list' | 'settings'>('list');
+  /** The "Paste as" menu. */
+  menuOpen = $state(false);
+  /** Kinds present in the unfiltered history, so the filter row only offers what exists. */
+  available = $state<Category[]>([]);
+  settings = $state<SettingsView | null>(null);
+  /** True while a shortcut is being recorded: Escape then belongs to the recorder. */
+  recording = $state(false);
 
   selectedIndex = $derived(this.items.findIndex((i) => i.id === this.selectedId));
   selected = $derived<ItemView | null>(this.items[this.selectedIndex] ?? null);
@@ -44,12 +55,18 @@ class Overlay {
   #noticeTimer: ReturnType<typeof setTimeout> | undefined;
   #revealTimer: ReturnType<typeof setTimeout> | undefined;
   #unlisten: Array<() => void> = [];
+  #saveTimer: ReturnType<typeof setTimeout> | undefined;
 
   async init(): Promise<void> {
-    this.config = await api.uiConfig();
-    applyTheme(this.config);
+    try {
+      this.config = await api.uiConfig();
+      applyTheme(this.config);
+    } catch (e) {
+      this.showNotice({ level: 'error', message: `Could not load settings: ${String(e)}` });
+    }
     this.#unlisten = await Promise.all([
       listen<null>('zlip:overlay-shown', () => void this.onShown()),
+      listen<null>('zlip:open-settings', () => void this.openSettings()),
       listen<null>('zlip:items-changed', () => void this.refresh()),
       listen<QueueView>('zlip:queue', (q) => (this.queue = q)),
       listen<UiConfig>('zlip:config', (c) => {
@@ -78,21 +95,37 @@ class Overlay {
     this.plain = false;
     this.revealed = null;
     this.selectedId = null;
+    this.view = 'list';
+    this.menuOpen = false;
+    this.recording = false;
     this.shownTick++;
-    const [status, notice] = await Promise.all([api.status(), api.takeNotice()]);
-    this.privateMode = status.private_mode;
-    this.queue = status.queue;
-    if (notice) this.showNotice(notice);
+    // Nothing below may stop the overlay from being usable: each step fails on its own.
+    try {
+      const [status, notice] = await Promise.all([api.status(), api.takeNotice()]);
+      this.privateMode = status.private_mode;
+      this.queue = status.queue;
+      if (notice) this.showNotice(notice);
+    } catch (e) {
+      console.error('status', e);
+    }
     await this.refresh();
   }
 
   async refresh(): Promise<void> {
     const seq = ++this.#seq;
-    const [items, folders] = await Promise.all([api.search(this.query, this.category, this.folder), api.folders()]);
+    let items: ItemView[];
+    let folders: FolderView[];
+    try {
+      [items, folders] = await Promise.all([api.search(this.query, this.category, this.folder), api.folders()]);
+    } catch (e) {
+      console.error('search', e);
+      return;
+    }
     if (seq !== this.#seq) return; // a newer keystroke already replaced this result
     this.items = items;
     this.folders = folders;
     this.loadedAt = Date.now();
+    if (!this.category && !this.folder && !this.query) this.available = [...new Set(items.map((i) => i.category))];
     if (!items.some((i) => i.id === this.selectedId)) this.selectedId = items[0]?.id ?? null;
     if (this.expandedId !== null && !items.some((i) => i.id === this.expandedId)) this.collapse();
     for (const it of items) if (it.category === 'image') void this.loadThumb(it.id);
@@ -124,8 +157,16 @@ class Overlay {
     void this.refresh();
   }
 
+  clearFilters(): void {
+    this.category = null;
+    this.folder = null;
+    this.collapse();
+    void this.refresh();
+  }
+
   cycleCategory(delta: 1 | -1): void {
-    const order: Array<Category | null> = [null, ...CATEGORY_ORDER];
+    // Only the kinds that exist: the filter row hides the others, so skipping through them would look broken.
+    const order: Array<Category | null> = [null, ...CATEGORY_ORDER.filter((c) => this.available.includes(c) || c === this.category)];
     const at = order.indexOf(this.category);
     this.setCategory(order[(at + delta + order.length) % order.length] ?? null);
   }
@@ -178,7 +219,9 @@ class Overlay {
 
   /** Escape peels back one layer at a time and only closes the overlay at the end. */
   async back(): Promise<void> {
-    if (this.editing) this.editing = false;
+    if (this.menuOpen) this.menuOpen = false;
+    else if (this.view === 'settings') await this.closeSettings();
+    else if (this.editing) this.editing = false;
     else if (this.revealed) this.hideSecret();
     else if (this.expandedId !== null) this.collapse();
     else if (this.query || this.category || this.folder) {
@@ -251,6 +294,103 @@ class Overlay {
   async setPrivate(on: boolean): Promise<void> {
     await api.setPrivateMode(on);
     this.privateMode = on;
+  }
+
+  // -------------------------------------------------------------- settings
+
+  async openSettings(): Promise<void> {
+    this.menuOpen = false;
+    this.view = 'settings';
+    await this.loadSettings();
+  }
+
+  async closeSettings(): Promise<void> {
+    await this.flushSettings();
+    this.view = 'list';
+    await this.refresh();
+  }
+
+  async loadSettings(): Promise<void> {
+    try {
+      this.settings = await api.getSettings();
+    } catch (e) {
+      this.showNotice({ level: 'error', message: String(e) });
+    }
+  }
+
+  /** Edit a setting. It applies to the screen at once and is saved a moment later. */
+  change(mutate: (c: Settings) => void): void {
+    if (!this.settings) return;
+    mutate(this.settings.config);
+    this.#previewSettings();
+    clearTimeout(this.#saveTimer);
+    this.#saveTimer = setTimeout(() => void this.persistSettings(), SAVE_DELAY_MS);
+  }
+
+  /** Show look-and-feel changes immediately; the saved copy comes back from Rust shortly after. */
+  #previewSettings(): void {
+    const c = this.settings?.config;
+    if (!c || !this.config) return;
+    this.config = {
+      ...this.config,
+      hotkeys: $state.snapshot(c.hotkeys),
+      theme: $state.snapshot(c.theme),
+      ui: $state.snapshot(c.ui)
+    };
+    applyTheme(this.config);
+  }
+
+  async flushSettings(): Promise<void> {
+    if (this.#saveTimer === undefined) return;
+    clearTimeout(this.#saveTimer);
+    this.#saveTimer = undefined;
+    await this.persistSettings();
+  }
+
+  async persistSettings(): Promise<void> {
+    this.#saveTimer = undefined;
+    if (!this.settings) return;
+    try {
+      await api.saveSettings($state.snapshot(this.settings.config) as Settings);
+      // Windows reports whether it accepted the backup shortcut a moment after it is set.
+      setTimeout(() => void this.refreshBackupStatus(), 1300);
+    } catch (e) {
+      // Nothing was saved: show what the file really says, and why.
+      this.showNotice({ level: 'error', message: String(e) });
+      await this.loadSettings();
+      if (this.settings && this.config) {
+        this.config = { ...this.config, hotkeys: $state.snapshot(this.settings.config.hotkeys), theme: $state.snapshot(this.settings.config.theme), ui: $state.snapshot(this.settings.config.ui) };
+        applyTheme(this.config);
+      }
+    }
+  }
+
+  async refreshBackupStatus(): Promise<void> {
+    try {
+      const fresh = await api.getSettings();
+      if (this.settings) this.settings.backup_shortcut = fresh.backup_shortcut;
+    } catch {
+      /* the status line just stays as it was */
+    }
+  }
+
+  async repairShortcuts(): Promise<void> {
+    try {
+      await api.repairShortcuts();
+      this.showNotice({ level: 'info', message: 'Shortcuts reconnected.' });
+    } catch (e) {
+      this.showNotice({ level: 'error', message: String(e) });
+    }
+  }
+
+  async clearHistory(): Promise<void> {
+    try {
+      const n = await api.clearHistory();
+      this.showNotice({ level: 'info', message: `${n === 1 ? '1 item' : `${n} items`} cleared. Pinned items were kept.` });
+      await this.refresh();
+    } catch (e) {
+      this.showNotice({ level: 'error', message: String(e) });
+    }
   }
 
   // --------------------------------------------------------------- secrets

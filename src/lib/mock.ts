@@ -1,7 +1,7 @@
 // A believable fake backend for browser development and visual checks. Not shipped
 // behaviour: the real engine is in Rust. Keep it small and obviously fake.
 
-import type { Category, FolderView, ItemDetail, ItemView, Notice, QueueView, StatusView, UiConfig } from './types';
+import type { Category, FolderView, ItemDetail, ItemView, Notice, QueueView, Settings, SettingsView, StatusView, UiConfig } from './types';
 
 const now = Date.now();
 const min = 60_000;
@@ -60,9 +60,10 @@ const snippets: ItemView[] = [
     preview: 'Email signature\nBest, Rhshourav · {date}' }
 ];
 
-const mockConfig = (): UiConfig => ({
+let settings: Settings = {
+  schema: 1,
   hotkeys: {
-    open_overlay: 'Win+V', queue_collect: 'Ctrl+Shift+Q', queue_paste: 'Ctrl+V', paste_plain: 'Shift+Enter',
+    open_overlay: 'Win+V', open_overlay_backup: 'Ctrl+Alt+V', queue_collect: 'Ctrl+Shift+Q', queue_paste: 'Ctrl+V', paste_plain: 'Shift+Enter',
     quick_paste: 'Alt+{1..9}', expand: 'Tab', pin: 'Ctrl+P', queue_add: 'Ctrl+Q', delete: 'Delete', close: 'Escape',
     prev_category: 'Ctrl+Left', next_category: 'Ctrl+Right'
   },
@@ -70,7 +71,18 @@ const mockConfig = (): UiConfig => ({
     mode: 'auto', tint_opacity: 0.14, corner_radius: 24, animations: true,
     categories: { text: '#C5CAF5', link: '#A9D6F5', code: '#D6C4F5', image: '#FAD0B8', color: '#F8C4D8', file: '#F7E3A6', snippet: '#BDEBD0', sensitive: '#F5B5AD' }
   },
-  ui: { width: 440, height: 640, position: 'caret', search_limit: 50, close_on_blur: true, hint_hide_after: 5 },
+  ui: { width: 360, height: 500, position: 'caret', search_limit: 50, close_on_blur: true, hint_hide_after: 5 },
+  retention: { max_items: 500, max_age: '30d', max_image_mb: 25, max_text_kb: 1024 },
+  security: { sensitive_ttl_secs: 60, min_token_len: 16, min_entropy_bits: 3.5, blacklist_exes: ['bitwarden.exe', '1password.exe'], blacklist_titles: ['Bitwarden', '1Password'] },
+  snippet_folders: [],
+  actions: [],
+  automations: []
+};
+
+const mockConfig = (): UiConfig => ({
+  hotkeys: { ...settings.hotkeys },
+  theme: { ...settings.theme },
+  ui: { ...settings.ui },
   os: { rounded: true, native_backdrop: false, transparency: true, dark: window.matchMedia('(prefers-color-scheme: dark)').matches },
   action_names: ['Run lint hook']
 });
@@ -194,6 +206,17 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
       case 'status': return { private_mode: privateMode, queue } satisfies StatusView;
       case 'set_private_mode': privateMode = Boolean(args.on); return null;
       case 'ui_config': return mockConfig();
+      case 'get_settings':
+        return { config: structuredClone(settings), version: '0.1.0', config_path: 'C:\\Users\\you\\AppData\\Roaming\\zlip\\config.toml', log_dir: 'C:\\Users\\you\\AppData\\Local\\zlip\\logs', backup_shortcut: settings.hotkeys.open_overlay_backup ? 'active' : 'off' } satisfies SettingsView;
+      case 'save_settings':
+        settings = structuredClone(args.settings as Settings);
+        emit('zlip:config', mockConfig());
+        return null;
+      case 'repair_shortcuts':
+      case 'pause_shortcuts':
+      case 'open_logs':
+      case 'open_config':
+        return null;
       case 'take_notice': return null;
       case 'run_action': return { status: 'needs_trust', action: String(args.name), path: 'C:/tools/zlip/lint.ps1', sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' };
       default: return null;

@@ -6,6 +6,7 @@ schema = 1
 [hotkeys]
 # Global shortcuts (must include a modifier). Zlip swallows these system-wide.
 open_overlay  = "Win+V"
+open_overlay_backup = "Ctrl+Alt+V"   # works even if the main shortcut stops responding; "" turns it off
 queue_collect = "Ctrl+Shift+Q"   # start collecting copies; press again to start pasting them in order
 queue_paste   = "Ctrl+V"         # while pasting a queue, this key pastes the next queued item
 # Shortcuts inside the overlay.
@@ -36,8 +37,8 @@ snippet   = "#BDEBD0"
 sensitive = "#F5B5AD"
 
 [ui]
-width             = 440
-height            = 640
+width             = 360
+height            = 500
 position          = "caret"  # caret = next to the text cursor when known | center
 search_limit      = 50
 close_on_blur     = true

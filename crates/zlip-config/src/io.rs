@@ -53,6 +53,35 @@ impl Config {
         }
     }
 
+    /// The settings screen saves with this. It writes every setting (including
+    /// snippets, actions and automations) but not the comments of a hand-edited file.
+    pub fn to_toml(&self) -> Result<String, ConfigError> {
+        let body =
+            toml::to_string_pretty(self).map_err(|e| ConfigError::Io(io::Error::other(e)))?;
+        // An f32 widened to f64 prints as 0.14000000357...; write what the user sees instead.
+        let tint = {
+            let mut t = self.theme.tint_opacity.to_string();
+            if !t.contains('.') {
+                t.push_str(".0");
+            }
+            format!("tint_opacity = {t}")
+        };
+        let body = body
+            .lines()
+            .map(|l| {
+                if l.trim_start().starts_with("tint_opacity") {
+                    tint.as_str()
+                } else {
+                    l
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(format!(
+            "#:schema ./zlip.schema.json\n# Saved by Zlip's settings screen. You can still edit this file by hand;\n# Zlip reloads it when you save.\n{body}\n"
+        ))
+    }
+
     /// JSON Schema for editor autocomplete (`#:schema ./zlip.schema.json`).
     #[must_use]
     pub fn json_schema() -> String {
@@ -125,12 +154,80 @@ pub fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
     })
 }
 
+/// Write the settings screen's result to `path`, atomically.
+pub fn save_config(path: &Path, config: &Config) -> Result<(), ConfigError> {
+    write_atomic(path, config.to_toml()?.as_bytes())?;
+    Ok(())
+}
+
+/// `key = value  # comment`: the value part, if `line` sets `key`.
+fn value_of<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let rest = line.strip_prefix(key)?.trim_start().strip_prefix('=')?;
+    Some(rest.split('#').next()?.trim())
+}
+
+/// Replace the value of a `key = value  # comment` line, keeping spacing and comment.
+fn with_value(line: &str, value: &str) -> String {
+    let eq = line.find('=').unwrap_or(0);
+    let (head, tail) = line.split_at(eq + 1);
+    let (old, comment) = match tail.find('#') {
+        Some(at) => tail.split_at(at),
+        None => (tail, ""),
+    };
+    let lead = &old[..old.len() - old.trim_start().len()];
+    let gap = if comment.is_empty() { "" } else { "  " };
+    format!("{head}{lead}{value}{gap}{comment}")
+}
+
+/// Zlip 0.1 shipped a 440 x 640 window, which is large. A file that still holds
+/// exactly those two untouched values gets the compact default instead. Anything
+/// else (a size the user chose) is left alone. Returns the new text, or `None`.
+fn upgrade_legacy_text(text: &str) -> Option<String> {
+    let mut in_ui = false;
+    let (mut width_at, mut height_at) = (None, None);
+    for (i, line) in text.lines().enumerate() {
+        let t = line.trim_start();
+        if t.starts_with('[') {
+            in_ui = t.starts_with("[ui]");
+        } else if in_ui {
+            if let Some(v) = value_of(t, "width") {
+                if v != "440" {
+                    return None;
+                }
+                width_at = Some(i);
+            } else if let Some(v) = value_of(t, "height") {
+                if v != "640" {
+                    return None;
+                }
+                height_at = Some(i);
+            }
+        }
+    }
+    let (w, h) = (width_at?, height_at?);
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out: Vec<String> = text.lines().map(str::to_owned).collect();
+    out[w] = with_value(&out[w], "360");
+    out[h] = with_value(&out[h], "500");
+    let mut joined = out.join(eol);
+    if text.ends_with('\n') {
+        joined.push_str(eol);
+    }
+    Some(joined)
+}
+
 /// Load `path`, creating it from the template on first run. A broken existing
 /// file is an error (never overwritten), so the caller can fall back to
 /// defaults *and* tell the user.
 pub fn load_or_create(path: &Path) -> Result<Config, ConfigError> {
     match fs::read_to_string(path) {
-        Ok(text) => Config::from_toml(&text),
+        Ok(text) => {
+            if let Some(upgraded) = upgrade_legacy_text(&text)
+                && write_atomic(path, upgraded.as_bytes()).is_ok()
+            {
+                return Config::from_toml(&upgraded);
+            }
+            Config::from_toml(&text)
+        }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             write_atomic(path, Config::default_toml().as_bytes())?;
             Ok(Config::default())
@@ -151,6 +248,44 @@ mod tests {
             Config::default(),
             "default-config.toml drifted from Config::default()"
         );
+    }
+
+    #[test]
+    fn the_old_default_window_size_is_upgraded_once_and_nothing_else_changes() {
+        let old = Config::default_toml()
+            .replace("width             = 360", "width             = 440")
+            .replace("height            = 500", "height            = 640");
+        let up = upgrade_legacy_text(&old).expect("legacy size is upgraded");
+        assert_eq!(up, Config::default_toml());
+        // Only the two values change: comments and spacing survive.
+        assert!(up.contains("position          = \"caret\"  # caret"));
+        // A size the user chose is never touched.
+        assert_eq!(
+            upgrade_legacy_text("[ui]\nwidth = 440\nheight = 700\n"),
+            None
+        );
+        assert_eq!(
+            upgrade_legacy_text("[ui]\nwidth = 500\nheight = 640\n"),
+            None
+        );
+        // Neither is a file that does not mention the size.
+        assert_eq!(upgrade_legacy_text("[ui]\nclose_on_blur = true\n"), None);
+        // Other sections' `width` keys do not count.
+        assert_eq!(
+            upgrade_legacy_text("[other]\nwidth = 440\nheight = 640\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn saved_settings_read_back_identically() {
+        let mut cfg = Config::default();
+        cfg.theme.tint_opacity = 0.3;
+        cfg.ui.width = 420;
+        cfg.hotkeys.open_overlay_backup = String::new();
+        let text = cfg.to_toml().unwrap();
+        assert!(text.contains("tint_opacity = 0.3\n"), "{text}");
+        assert_eq!(Config::from_toml(&text).unwrap(), cfg);
     }
 
     #[test]

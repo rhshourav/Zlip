@@ -179,7 +179,7 @@ mod tests {
         let mut next = Config::default();
         next.ui.width = 600;
         h.set(next);
-        assert_eq!(before.ui.width, 440);
+        assert_eq!(before.ui.width, 360);
         assert_eq!(h.snapshot().ui.width, 600);
     }
 }

@@ -11,7 +11,9 @@ mod io;
 mod model;
 mod watch;
 
-pub use io::{ConfigError, config_dir, config_path, data_dir, load_or_create, write_atomic};
+pub use io::{
+    ConfigError, config_dir, config_path, data_dir, load_or_create, save_config, write_atomic,
+};
 pub use model::{
     Action, ActionKind, Automation, CategoryColors, Config, ConfigIssue, GlobalChords, Hotkeys,
     Position, Retention, SCHEMA_VERSION, SecurityConfig, Snippet, SnippetFolder, Theme, ThemeMode,
