@@ -13,3 +13,8 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Release tooling output (scripts/winget-manifest.mjs, the release workflow)
+/winget-manifests/
+/winget-test/
+/release-body.md

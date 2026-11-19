@@ -528,9 +528,7 @@ impl Config {
             match backup.parse::<Chord>() {
                 Ok(c) if c.mods.is_empty() => bad(
                     "hotkeys.open_overlay_backup",
-                    format!(
-                        "`{backup}` needs a modifier: a bare key would be swallowed system-wide"
-                    ),
+                    format!("`{backup}` needs a modifier: a bare key would be swallowed system-wide"),
                 ),
                 Ok(c) => {
                     if let Some((other, _)) = global.iter().find(|(_, o)| *o == c) {
@@ -791,10 +789,7 @@ mod tests {
         // Empty means "off".
         let cfg: Config = toml::from_str("[hotkeys]\nopen_overlay_backup = \"\"").unwrap();
         assert_eq!(cfg.validate(), vec![]);
-        assert_eq!(
-            cfg.hotkeys.global_chords().unwrap().open_overlay_backup,
-            None
-        );
+        assert_eq!(cfg.hotkeys.global_chords().unwrap().open_overlay_backup, None);
         // The default is on.
         let on = Config::default().hotkeys.global_chords().unwrap();
         assert!(on.open_overlay_backup.is_some());

@@ -102,6 +102,8 @@ jobs:
       - run: npm run lint
       - run: npm run check
       - run: npm run build
+      # Release tooling (version bump, release notes, Winget manifests, installer build).
+      - run: npm run test:scripts
 
   audit:
     name: dependency audit

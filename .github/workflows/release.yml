@@ -8,6 +8,13 @@
 #   WINDOWS_CERTIFICATE / WINDOWS_CERTIFICATE_PASSWORD               optional .pfx, base64
 #   WINGET_PKGS_TOKEN    classic PAT, scope public_repo (opens the winget-pkgs PR)
 #
+# Before tagging (details: docs/RELEASING.md):
+#   node scripts/bump-version.mjs 1.2.3                      Cargo.toml + Cargo.lock + package*.json
+#   node scripts/release-notes.mjs scaffold --version 1.2.3  then fill in docs/release-notes/v1.2.3.md
+# A pre-release tag must end in a NUMBER (v1.2.3-1, not v1.2.3-rc.1): the MSI installer
+# cannot carry text in its version and Tauri fails the build otherwise. Pre-releases are
+# published but never sent to Winget.
+#
 # Manual re-run: Actions -> Release -> Run workflow, and pick the TAG (not a
 # branch) under "Use workflow from".
 
@@ -83,6 +90,18 @@ jobs:
             echo "version=$VERSION"
             if [[ "$VERSION" == *-* ]]; then echo "prerelease=true"; else echo "prerelease=false"; fi
           } >> "$GITHUB_OUTPUT"
+
+      # Fail in seconds, not after a 30-minute build: every version field must agree
+      # (Cargo.lock too: CI builds with --locked), the version must be MSI-legal, and the
+      # release notes must exist and be finished.
+      - name: Check version fields, MSI version rules and release notes
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/bump-version.mjs --check "$VERSION"
+          node scripts/release-notes.mjs check --tag "$TAG"
 
   # --------------------------------------------------------------- CI gate
   ci:
@@ -164,6 +183,21 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
           args: --bundles nsis,msi
 
+      # tauri-action only takes the body as a string, and re-runs reset it, so the notes
+      # are applied afterwards with gh. The text depends on the tag (pre-releases drop the
+      # Winget line) and on whether the installers were signed.
+      - name: Write the release notes onto the draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED: ${{ env.WINDOWS_CERTIFICATE != '' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/release-notes.mjs body --tag $env:TAG --repo $env:GITHUB_REPOSITORY --signed $env:SIGNED --out release-body.md
+          if ($LASTEXITCODE -ne 0) { throw 'Could not render the release notes.' }
+          gh release edit $env:TAG --repo $env:GITHUB_REPOSITORY --notes-file release-body.md
+          if ($LASTEXITCODE -ne 0) { throw 'Could not set the release notes.' }
+
       - name: Compute SHA256 sums and attach them to the release
         id: hash
         shell: pwsh
@@ -220,6 +254,10 @@ jobs:
     if: ${{ needs.prepare.outputs.prerelease == 'false' && (github.event_name == 'push' || inputs.submit_winget) }}
     runs-on: windows-latest
     timeout-minutes: 20
+    # The header says WINGET_PKGS_TOKEN lives in the "release" environment, and a job can only
+    # read an environment's secrets if it names that environment. (Repository-level secrets
+    # still work too.)
+    environment: release
     permissions:
       contents: read
     env:
@@ -227,6 +265,12 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts
+            docs/release-notes
+
       - name: Require WINGET_PKGS_TOKEN
         shell: pwsh
         env:
@@ -294,6 +338,9 @@ jobs:
             "$($p.ToLower())=$v" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           }
 
+      # scripts/winget-manifest.mjs builds and VALIDATES the three files (it refuses to write
+      # a malformed one) and adds the release notes' Highlights as ReleaseNotes. The same
+      # script runs on your PC for a dry run: see docs/RELEASING.md.
       - name: Generate the Winget manifests (version, installer, defaultLocale)
         shell: pwsh
         env:
@@ -304,82 +351,8 @@ jobs:
           DISPLAY_VERSION: ${{ steps.msi.outputs.productversion }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $id = $env:PACKAGE_ID
-          $publisher, $package = $id.Split('.', 2)
-          $version  = $env:VERSION
-          $repoUrl  = "https://github.com/$env:GITHUB_REPOSITORY"
-          $released = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
-          $dir = "winget-manifests/manifests/$($publisher.Substring(0,1).ToLower())/$publisher/$package/$version"
-          New-Item -ItemType Directory -Force $dir | Out-Null
-
-          $versionYaml = @"
-          # yaml-language-server: `$schema=https://aka.ms/winget-manifest.version.1.10.0.schema.json
-          PackageIdentifier: $id
-          PackageVersion: $version
-          DefaultLocale: en-US
-          ManifestType: version
-          ManifestVersion: 1.10.0
-          "@
-
-          $installerYaml = @"
-          # yaml-language-server: `$schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
-          PackageIdentifier: $id
-          PackageVersion: $version
-          InstallerLocale: en-US
-          MinimumOSVersion: 10.0.18362.0
-          InstallerType: wix
-          Scope: machine
-          InstallModes:
-          - interactive
-          - silent
-          - silentWithProgress
-          UpgradeBehavior: install
-          ReleaseDate: $released
-          Installers:
-          - Architecture: x64
-            InstallerUrl: $($env:INSTALLER_URL)
-            InstallerSha256: $($env:INSTALLER_SHA256)
-            ProductCode: '$($env:PRODUCT_CODE)'
-            AppsAndFeaturesEntries:
-            - DisplayName: $package
-              Publisher: $publisher
-              DisplayVersion: $($env:DISPLAY_VERSION)
-              ProductCode: '$($env:PRODUCT_CODE)'
-              UpgradeCode: '$($env:UPGRADE_CODE)'
-              InstallerType: wix
-          ManifestType: installer
-          ManifestVersion: 1.10.0
-          "@
-
-          $localeYaml = @"
-          # yaml-language-server: `$schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
-          PackageIdentifier: $id
-          PackageVersion: $version
-          PackageLocale: en-US
-          Publisher: $publisher
-          PublisherUrl: https://github.com/$publisher
-          PublisherSupportUrl: $repoUrl/issues
-          Author: $publisher
-          PackageName: $package
-          PackageUrl: $repoUrl
-          License: $($env:PACKAGE_LICENSE)
-          LicenseUrl: $repoUrl/blob/$($env:TAG)/LICENSE
-          ShortDescription: "$($env:PACKAGE_SHORT_DESC)"
-          Tags:
-          - clipboard
-          - clipboard-manager
-          - productivity
-          - rust
-          - tauri
-          ReleaseNotesUrl: $repoUrl/releases/tag/$($env:TAG)
-          ManifestType: defaultLocale
-          ManifestVersion: 1.10.0
-          "@
-
-          Set-Content -LiteralPath "$dir/$id.yaml"               -Value $versionYaml   -Encoding utf8NoBOM
-          Set-Content -LiteralPath "$dir/$id.installer.yaml"     -Value $installerYaml -Encoding utf8NoBOM
-          Set-Content -LiteralPath "$dir/$id.locale.en-US.yaml"  -Value $localeYaml    -Encoding utf8NoBOM
-          Get-ChildItem $dir | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName }
+          node scripts/winget-manifest.mjs --out winget-manifests
+          if ($LASTEXITCODE -ne 0) { throw 'Manifest generation or validation failed.' }
 
       - name: Keep the manifests as a build artifact
         uses: actions/upload-artifact@v4

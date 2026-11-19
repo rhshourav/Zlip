@@ -19,7 +19,10 @@ pub fn init(dir: &Path) -> WorkerGuard {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let thread = std::thread::current();
-        tracing::error!(thread = thread.name().unwrap_or("unnamed"), "panic: {info}");
+        tracing::error!(
+            thread = thread.name().unwrap_or("unnamed"),
+            "panic: {info}"
+        );
         previous(info);
     }));
     guard

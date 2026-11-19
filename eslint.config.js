@@ -22,5 +22,7 @@ export default defineConfig(
     files: ['**/*.svelte', '**/*.svelte.ts'],
     languageOptions: { parserOptions: { parser: tseslint.parser } }
   },
-  { files: ['*.config.js', 'vite.config.ts'], languageOptions: { globals: { ...globals.node } } }
+  { files: ['*.config.js', 'vite.config.ts'], languageOptions: { globals: { ...globals.node } } },
+  // Release tooling (scripts/) runs in Node, not in the webview.
+  { files: ['scripts/**/*.mjs'], languageOptions: { globals: { ...globals.node } } }
 );
