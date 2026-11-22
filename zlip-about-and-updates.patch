@@ -1,0 +1,482 @@
+diff --git a/src/components/Settings.svelte b/src/components/Settings.svelte
+index 0d07a11..b3fd34c 100644
+--- a/src/components/Settings.svelte
++++ b/src/components/Settings.svelte
+@@ -6,6 +6,7 @@
+   import { api } from '../lib/api';
+   import { hasModifier, hasWin, withWin } from '../lib/chords';
+   import { ov } from '../lib/overlay.svelte';
++  import { checkForUpdate, type UpdateState } from '../lib/update';
+ 
+   interface Opt<T> {
+     value: T;
+@@ -76,6 +77,39 @@
+     confirming = false;
+     void ov.clearHistory();
+   }
++
++  // ---- about: the repository link and the update check ----
++  const repoUrl = $derived(ov.settings?.repo_url ?? '');
++  const repoLabel = $derived(repoUrl.replace(/^https?:\/\//, ''));
++
++  let update = $state<UpdateState>({ status: 'idle' });
++  /** Set only while a newer release is known; the page to open for it. */
++  const releaseUrl = $derived(update.status === 'available' ? update.url : null);
++  const updateText = $derived.by(() => {
++    switch (update.status) {
++      case 'checking':
++        return 'Checking…';
++      case 'current':
++        return `You have the latest version (${update.latest}).`;
++      case 'available':
++        return `Version ${update.latest} is available.`;
++      case 'error':
++        return update.message;
++      default:
++        return 'Looks at GitHub only when you ask.';
++    }
++  });
++
++  async function checkUpdates(): Promise<void> {
++    if (!ov.settings || update.status === 'checking') return;
++    update = { status: 'checking' };
++    update = await checkForUpdate(ov.settings.repo_url, ov.settings.version);
++  }
++
++  /** The app only opens pages of its own repository; anything else is refused on the Rust side. */
++  function openPage(url: string): void {
++    void api.openUrl(url).catch((e: unknown) => ov.showNotice({ level: 'error', message: String(e) }));
++  }
+ </script>
+ 
+ <div class="settings">
+@@ -232,9 +266,30 @@
+         <h2>About</h2>
+         <div class="group">
+           <div class="r">
+-            <span class="l">Zlip</span>
++            <span class="l">
++              Zlip
++              <small>Made by rhshourav</small>
++            </span>
+             <span class="val">Version {ov.settings.version}</span>
+           </div>
++          <div class="r">
++            <span class="l">
++              Source code
++              <small class="path">{repoLabel}</small>
++            </span>
++            <button class="btn" onclick={() => openPage(repoUrl)}>Open</button>
++          </div>
++          <div class="r">
++            <span class="l">
++              Updates
++              <small class:err={update.status === 'error'} aria-live="polite">{updateText}</small>
++            </span>
++            {#if releaseUrl}
++              <button class="btn primary" onclick={() => openPage(releaseUrl)}>View release</button>
++            {:else}
++              <button class="btn" disabled={update.status === 'checking'} onclick={() => void checkUpdates()}>Check</button>
++            {/if}
++          </div>
+           <div class="r">
+             <span class="l">
+               Settings file
+@@ -362,6 +417,9 @@
+     color: var(--danger);
+     font-size: 12px;
+   }
++  small.err {
++    color: var(--danger);
++  }
+   .val {
+     font-size: 12px;
+     color: var(--ink-3);
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index dbe9493..f2c2788 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -2,6 +2,7 @@
+   hideOverlay: () => call<void>('hide_overlay'),
+   openConfig: () => call<void>('open_config'),
+   openLogs: () => call<void>('open_logs'),
++  openUrl: (url: string) => call<void>('open_url', { url }),
+   getSettings: () => call<SettingsView>('get_settings'),
+   saveSettings: (settings: Settings) => call<void>('save_settings', { settings }),
+   repairShortcuts: () => call<void>('repair_shortcuts'),
+diff --git a/src/lib/mock.ts b/src/lib/mock.ts
+index a8de33e..aaf24f7 100644
+--- a/src/lib/mock.ts
++++ b/src/lib/mock.ts
+@@ -2,13 +2,14 @@
+       case 'set_private_mode': privateMode = Boolean(args.on); return null;
+       case 'ui_config': return mockConfig();
+       case 'get_settings':
+-        return { config: structuredClone(settings), version: '0.1.0', config_path: 'C:\\Users\\you\\AppData\\Roaming\\zlip\\config.toml', log_dir: 'C:\\Users\\you\\AppData\\Local\\zlip\\logs', backup_shortcut: settings.hotkeys.open_overlay_backup ? 'active' : 'off' } satisfies SettingsView;
++        return { config: structuredClone(settings), version: '0.1.0', repo_url: 'https://github.com/rhshourav/zlip', config_path: 'C:\\Users\\you\\AppData\\Roaming\\zlip\\config.toml', log_dir: 'C:\\Users\\you\\AppData\\Local\\zlip\\logs', backup_shortcut: settings.hotkeys.open_overlay_backup ? 'active' : 'off' } satisfies SettingsView;
+       case 'save_settings':
+         settings = structuredClone(args.settings as Settings);
+         emit('zlip:config', mockConfig());
+         return null;
+       case 'repair_shortcuts':
+       case 'pause_shortcuts':
++      case 'open_url':
+       case 'open_logs':
+       case 'open_config':
+         return null;
+diff --git a/src/lib/types.ts b/src/lib/types.ts
+index 56aeb5a..6624c7f 100644
+--- a/src/lib/types.ts
++++ b/src/lib/types.ts
+@@ -6,6 +6,8 @@
+ export interface SettingsView {
+   config: Settings;
+   version: string;
++  /** The project page on GitHub. It comes from the app itself, not from the settings file. */
++  repo_url: string;
+   config_path: string;
+   log_dir: string;
+   /** `unavailable`: Windows refused the backup shortcut (another program uses it). */
+diff --git a/src/lib/update.test.ts b/src/lib/update.test.ts
+new file mode 100644
+index 0000000..f1dee54
+--- /dev/null
++++ b/src/lib/update.test.ts
+@@ -0,0 +1,104 @@
++import { describe, expect, it } from 'vitest';
++import { checkForUpdate, compareVersions, parseVersion, repoSlug } from './update';
++
++const REPO = 'https://github.com/rhshourav/zlip';
++
++/** A fake `fetch` that answers with a fixed status and JSON body. */
++const answer =
++  (status: number, body: unknown): typeof fetch =>
++  async () =>
++    new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
++
++describe('versions', () => {
++  it('parses plain, v-prefixed and pre-release versions', () => {
++    expect(parseVersion('1.2.3')).toEqual({ core: [1, 2, 3], pre: null });
++    expect(parseVersion('v0.10.4')).toEqual({ core: [0, 10, 4], pre: null });
++    expect(parseVersion('1.0.0-beta.2')).toEqual({ core: [1, 0, 0], pre: ['beta', '2'] });
++    expect(parseVersion('1.0.0+build.5')).toEqual({ core: [1, 0, 0], pre: null });
++  });
++
++  it('rejects anything that is not a version', () => {
++    for (const bad of ['', 'v1', '1.2', '1.2.x', 'release-1.2.3', '1.2.3.4', '1.2.3-']) expect(parseVersion(bad)).toBeNull();
++  });
++
++  it('compares numbers as numbers, not as text', () => {
++    expect(compareVersions('0.10.0', '0.9.0')).toBe(1);
++    expect(compareVersions('1.2.3', '1.2.3')).toBe(0);
++    expect(compareVersions('v1.2.3', '1.2.3')).toBe(0);
++    expect(compareVersions('1.0.9', '1.1.0')).toBe(-1);
++    expect(compareVersions('2.0.0', '1.99.99')).toBe(1);
++  });
++
++  it('puts a pre-release before its release', () => {
++    expect(compareVersions('1.0.0-beta', '1.0.0')).toBe(-1);
++    expect(compareVersions('1.0.0', '1.0.0-rc.1')).toBe(1);
++    expect(compareVersions('1.0.0-beta.2', '1.0.0-beta.11')).toBe(-1);
++    expect(compareVersions('1.0.0-alpha', '1.0.0-beta')).toBe(-1);
++    expect(compareVersions('1.0.0-beta', '1.0.0-beta.1')).toBe(-1);
++    expect(compareVersions('1.0.0-1', '1.0.0-beta')).toBe(-1);
++  });
++
++  it('gives null when either side is not a version', () => {
++    expect(compareVersions('nightly', '1.0.0')).toBeNull();
++  });
++});
++
++describe('repository address', () => {
++  it('extracts owner and name', () => {
++    expect(repoSlug(REPO)).toBe('rhshourav/zlip');
++    expect(repoSlug(`${REPO}/`)).toBe('rhshourav/zlip');
++  });
++  it('refuses anything that is not a plain github.com repository', () => {
++    for (const bad of ['', 'http://github.com/a/b', 'https://example.com/a/b', 'https://github.com/a', 'https://github.com/a/b/c']) expect(repoSlug(bad)).toBeNull();
++  });
++});
++
++describe('checking for an update', () => {
++  it('reports a newer release with its page', async () => {
++    const r = await checkForUpdate(REPO, '0.1.0', answer(200, { tag_name: 'v0.2.0', html_url: `${REPO}/releases/tag/v0.2.0` }));
++    expect(r).toEqual({ status: 'available', latest: '0.2.0', url: `${REPO}/releases/tag/v0.2.0` });
++  });
++
++  it('reports up to date for the same or an older release', async () => {
++    expect(await checkForUpdate(REPO, '0.2.0', answer(200, { tag_name: 'v0.2.0' }))).toEqual({ status: 'current', latest: '0.2.0' });
++    expect(await checkForUpdate(REPO, '0.3.0', answer(200, { tag_name: 'v0.2.0' }))).toEqual({ status: 'current', latest: '0.2.0' });
++  });
++
++  it('asks GitHub for this repository only, with a plain Accept header', async () => {
++    let seen: { url: string; init?: RequestInit } | undefined;
++    const spy: typeof fetch = async (url, init) => {
++      seen = { url: String(url), init };
++      return new Response(JSON.stringify({ tag_name: 'v0.1.0' }), { status: 200 });
++    };
++    await checkForUpdate(`${REPO}/`, '0.1.0', spy);
++    expect(seen?.url).toBe('https://api.github.com/repos/rhshourav/zlip/releases/latest');
++    expect(seen?.init?.headers).toEqual({ Accept: 'application/vnd.github+json' });
++  });
++
++  it('never points outside the project, whatever the answer says', async () => {
++    const r = await checkForUpdate(REPO, '0.1.0', answer(200, { tag_name: 'v0.2.0', html_url: 'https://evil.example/download.exe' }));
++    expect(r).toEqual({ status: 'available', latest: '0.2.0', url: `${REPO}/releases/latest` });
++    const r2 = await checkForUpdate(REPO, '0.1.0', answer(200, { tag_name: 'v0.2.0', html_url: 'https://github.com/rhshourav/zlip-evil/x' }));
++    expect(r2).toMatchObject({ url: `${REPO}/releases/latest` });
++  });
++
++  it('says what went wrong in plain words', async () => {
++    const msg = async (p: Promise<{ status: string; message?: string }>) => (await p).message;
++    expect(await msg(checkForUpdate(REPO, '0.1.0', answer(404, {})))).toMatch(/No release/);
++    expect(await msg(checkForUpdate(REPO, '0.1.0', answer(403, {})))).toMatch(/limiting/);
++    expect(await msg(checkForUpdate(REPO, '0.1.0', answer(500, {})))).toMatch(/error 500/);
++    expect(await msg(checkForUpdate(REPO, '0.1.0', answer(200, 'not json')))).toMatch(/couldn’t be read/);
++    expect(await msg(checkForUpdate(REPO, '0.1.0', answer(200, { tag_name: 'nightly' })))).toMatch(/isn’t numbered/);
++    expect(await msg(checkForUpdate(REPO, '0.1.0', answer(200, [])))).toMatch(/isn’t numbered/);
++    expect(await msg(checkForUpdate(REPO, '0.1.0', async () => Promise.reject(new TypeError('Failed to fetch'))))).toMatch(/Couldn’t reach GitHub/);
++    expect(await msg(checkForUpdate(REPO, '0.1.0', async () => Promise.reject(new DOMException('timeout', 'TimeoutError'))))).toMatch(/too long/);
++  });
++
++  it('refuses a build whose address or version is unusable, without asking the network', async () => {
++    const never: typeof fetch = async () => {
++      throw new Error('should not be called');
++    };
++    expect((await checkForUpdate('https://example.com/x/y', '0.1.0', never)).status).toBe('error');
++    expect((await checkForUpdate(REPO, 'dev', never)).status).toBe('error');
++  });
++});
+diff --git a/src/lib/update.ts b/src/lib/update.ts
+new file mode 100644
+index 0000000..d70d88f
+--- /dev/null
++++ b/src/lib/update.ts
+@@ -0,0 +1,115 @@
++// Checking GitHub for a newer release.
++//
++// This only ever runs when the person presses "Check" in Settings: Zlip never contacts the
++// network on its own. It asks for the project's latest published release and compares version
++// numbers. Nothing is downloaded or installed; a newer version is opened as a web page.
++
++export type UpdateState =
++  | { status: 'idle' }
++  | { status: 'checking' }
++  | { status: 'current'; latest: string }
++  | { status: 'available'; latest: string; url: string }
++  | { status: 'error'; message: string };
++
++export type CheckResult = Exclude<UpdateState, { status: 'idle' | 'checking' }>;
++
++interface Parsed {
++  core: [number, number, number];
++  /** The dot-separated parts after the hyphen of "1.2.3-beta.1", or null for a final release. */
++  pre: string[] | null;
++}
++
++const TIMEOUT_MS = 8000;
++
++/** "1.2.3", "v1.2.3" and "1.2.3-beta.1" (a "+build" suffix is ignored). Anything else is null. */
++export function parseVersion(text: string): Parsed | null {
++  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/.exec(text.trim());
++  if (!m) return null;
++  return { core: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ? m[4].split('.') : null };
++}
++
++function comparePre(a: string[], b: string[]): number {
++  for (let i = 0; i < Math.max(a.length, b.length); i++) {
++    const x = a[i];
++    const y = b[i];
++    if (x === undefined) return -1; // fewer parts is the lower version: 1.0.0-beta < 1.0.0-beta.1
++    if (y === undefined) return 1;
++    const xNum = /^\d+$/.test(x);
++    const yNum = /^\d+$/.test(y);
++    if (xNum && yNum) {
++      const d = Number(x) - Number(y);
++      if (d !== 0) return Math.sign(d);
++    } else if (xNum !== yNum) {
++      return xNum ? -1 : 1; // numbers sort before words: 1.0.0-1 < 1.0.0-beta
++    } else if (x !== y) {
++      return x < y ? -1 : 1;
++    }
++  }
++  return 0;
++}
++
++/** Negative when `a` is older than `b`, 0 when equal, positive when newer. Null if either is not a version. */
++export function compareVersions(a: string, b: string): number | null {
++  const pa = parseVersion(a);
++  const pb = parseVersion(b);
++  if (!pa || !pb) return null;
++  for (let i = 0; i < 3; i++) {
++    const d = (pa.core[i] ?? 0) - (pb.core[i] ?? 0);
++    if (d !== 0) return Math.sign(d);
++  }
++  if (pa.pre && pb.pre) return comparePre(pa.pre, pb.pre);
++  if (pa.pre) return -1; // 1.0.0-beta is older than 1.0.0
++  if (pb.pre) return 1;
++  return 0;
++}
++
++/** "https://github.com/owner/repo" becomes "owner/repo". */
++export function repoSlug(url: string): string | null {
++  const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)\/?$/.exec(url.trim());
++  return m ? `${m[1]}/${m[2]}` : null;
++}
++
++const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
++const fail = (message: string): CheckResult => ({ status: 'error', message });
++
++/**
++ * Ask GitHub for the latest release of `repoUrl` and compare it with `current`.
++ * Never throws: every failure comes back as `{ status: 'error' }` with a sentence to show.
++ * `request` is `fetch`; it is a parameter so tests can answer without a network.
++ */
++export async function checkForUpdate(repoUrl: string, current: string, request: typeof fetch = fetch): Promise<CheckResult> {
++  const base = repoUrl.replace(/\/+$/, '');
++  const slug = repoSlug(base);
++  if (!slug) return fail('This build doesn’t point at a GitHub repository.');
++  if (!parseVersion(current)) return fail('Couldn’t read the installed version number.');
++
++  let res: Response;
++  try {
++    res = await request(`https://api.github.com/repos/${slug}/releases/latest`, {
++      // `Accept` is a plain header, so the browser sends the request without a preflight.
++      headers: { Accept: 'application/vnd.github+json' },
++      signal: AbortSignal.timeout(TIMEOUT_MS)
++    });
++  } catch (e) {
++    return fail(e instanceof DOMException && e.name === 'TimeoutError' ? 'GitHub took too long to answer.' : 'Couldn’t reach GitHub. Check your connection.');
++  }
++  if (res.status === 404) return fail('No release has been published yet.');
++  if (res.status === 403 || res.status === 429) return fail('GitHub is limiting requests right now. Try again later.');
++  if (!res.ok) return fail(`GitHub answered with error ${res.status}.`);
++
++  let body: unknown;
++  try {
++    body = await res.json();
++  } catch {
++    return fail('GitHub’s answer couldn’t be read.');
++  }
++  const tag = isRecord(body) && typeof body.tag_name === 'string' ? body.tag_name : '';
++  if (!parseVersion(tag)) return fail('The latest release isn’t numbered like a version.');
++  const latest = tag.trim().replace(/^v/, '');
++
++  // Only ever point at a page of this project, whatever the answer says.
++  const page = isRecord(body) && typeof body.html_url === 'string' && body.html_url.startsWith(`${base}/`) ? body.html_url : `${base}/releases/latest`;
++
++  const order = compareVersions(latest, current);
++  return order !== null && order > 0 ? { status: 'available', latest, url: page } : { status: 'current', latest };
++}
+diff --git a/src-tauri/src/app.rs b/src-tauri/src/app.rs
+index d244c9e..368b1cf 100644
+--- a/src-tauri/src/app.rs
++++ b/src-tauri/src/app.rs
+@@ -3,6 +3,7 @@
+             commands::repair_shortcuts,
+             commands::pause_shortcuts,
+             commands::open_logs,
++            links::open_url,
+             commands::run_action,
+             commands::trust_action,
+         ])
+diff --git a/src-tauri/src/commands.rs b/src-tauri/src/commands.rs
+index 707d18b..05b9be6 100644
+--- a/src-tauri/src/commands.rs
++++ b/src-tauri/src/commands.rs
+@@ -9,6 +9,8 @@ pub async fn hide_overlay(shared: Shr<'_>) -> CmdResult<()> {
+ pub struct SettingsView {
+     pub config: Config,
+     pub version: &'static str,
++    /// The project page on GitHub: Settings links to it and looks there for updates.
++    pub repo_url: &'static str,
+     pub config_path: String,
+     pub log_dir: String,
+     /// `off`, `active` or `unavailable` (Windows refused the backup shortcut).
+@@ -20,6 +22,7 @@ pub async fn get_settings(shared: Shr<'_>) -> CmdResult<SettingsView> {
+     Ok(SettingsView {
+         config: (*shared.cfg.snapshot()).clone(),
+         version: env!("CARGO_PKG_VERSION"),
++        repo_url: crate::links::REPO_URL,
+         config_path: zlip_config::config_path().display().to_string(),
+         log_dir: zlip_config::data_dir().join("logs").display().to_string(),
+         backup_shortcut: zlip_platform::backup_state().as_str(),
+diff --git a/src-tauri/src/links.rs b/src-tauri/src/links.rs
+new file mode 100644
+index 0000000..b78e5c7
+--- /dev/null
++++ b/src-tauri/src/links.rs
+@@ -0,0 +1,61 @@
++//! Opening links. Zlip opens one family of addresses: its own repository's pages.
++
++/// The project page. The settings screen links to it and looks there for newer releases,
++/// and `open_url` opens this address and the pages under it, nothing else.
++pub const REPO_URL: &str = "https://github.com/rhshourav/zlip";
++
++/// `true` for the repository's own pages and nothing else.
++fn is_repo_url(url: &str) -> bool {
++    let inside = url
++        .strip_prefix(REPO_URL)
++        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
++    inside && !url.chars().any(|c| c.is_whitespace() || c.is_control())
++}
++
++/// Open a page of the Zlip repository in the default browser. Any other address is refused,
++/// so nothing (not even a reply from GitHub) can make Zlip open an arbitrary link.
++#[tauri::command]
++pub async fn open_url(url: String) -> Result<(), String> {
++    if !is_repo_url(&url) {
++        return Err("Zlip only opens pages of its own repository.".to_owned());
++    }
++    zlip_platform::open_in_shell(&url);
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn opens_the_repository_and_its_pages() {
++        for ok in [
++            REPO_URL,
++            "https://github.com/rhshourav/zlip/",
++            "https://github.com/rhshourav/zlip/releases/latest",
++            "https://github.com/rhshourav/zlip/releases/tag/v1.2.3",
++        ] {
++            assert!(is_repo_url(ok), "{ok}");
++        }
++    }
++
++    #[test]
++    fn refuses_everything_else() {
++        for bad in [
++            "",
++            "https://github.com/rhshourav/zlip-evil",
++            "https://github.com/rhshourav/zlipx/releases",
++            "https://github.com/rhshourav/zlip@evil.example",
++            "https://github.com/rhshourav",
++            "http://github.com/rhshourav/zlip",
++            "https://github.com.evil.example/rhshourav/zlip",
++            "https://evil.example/?https://github.com/rhshourav/zlip",
++            "file:///C:/Windows/System32/calc.exe",
++            "calc.exe",
++            "https://github.com/rhshourav/zlip/ calc.exe",
++            "https://github.com/rhshourav/zlip/\ncalc.exe",
++        ] {
++            assert!(!is_repo_url(bad), "{bad:?}");
++        }
++    }
++}
+diff --git a/src-tauri/src/main.rs b/src-tauri/src/main.rs
+index 1db78d5..da43475 100644
+--- a/src-tauri/src/main.rs
++++ b/src-tauri/src/main.rs
+@@ -7,6 +7,7 @@ mod app;
+ mod capture;
+ mod commands;
+ mod controller;
++mod links;
+ mod logging;
+ mod paste;
+ mod state;

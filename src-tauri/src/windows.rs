@@ -117,9 +117,31 @@ pub fn show_overlay(shared: &Arc<Shared>, foreground: WindowHandle) {
     } else {
         None
     };
+
+    // A hidden window keeps the pixel size it had on the monitor it was last shown on.
+    // Park it on the monitor it is about to open on first, so Windows rescales it there,
+    // then ask for the configured size again. The size measured below is then the size
+    // the overlay really has when it appears, on any monitor and at any scaling.
+    if !overlay_visible(shared) {
+        let _ = w.set_position(PhysicalPosition::new(work.left, work.top));
+    }
+    let _ = w.set_size(tauri::LogicalSize::new(
+        f64::from(cfg.ui.width),
+        f64::from(cfg.ui.height),
+    ));
     if let Ok(size) = w.outer_size() {
         let p = place_overlay(work, caret, (size.width as i32, size.height as i32), GAP);
         let _ = w.set_position(PhysicalPosition::new(p.x, p.y));
+        // Set ZLIP_LOG=debug to see these in the log files: they say which size the window
+        // really had and whether the app in front reported a text caret.
+        tracing::debug!(
+            want = ?(cfg.ui.width, cfg.ui.height),
+            got = ?(size.width, size.height),
+            scale = ?w.scale_factor().ok(),
+            caret = caret.is_some(),
+            at = ?(p.x, p.y),
+            "overlay placed"
+        );
     }
     shared.mark_overlay_shown();
     let _ = w.set_always_on_top(true);
@@ -208,7 +230,9 @@ pub fn update_hud(shared: &Shared) {
     let Some(hud) = shared.app.get_webview_window("hud") else {
         return;
     };
-    if view.mode == "idle" {
+    // Nothing queued means nothing to show. That also covers "collecting" before the
+    // first copy: the pill appears with the first item.
+    if view.mode == "idle" || view.len == 0 {
         let _ = hud.hide();
     } else {
         if let Ok(size) = hud.outer_size() {

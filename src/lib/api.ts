@@ -53,10 +53,13 @@ export const api = {
   hideOverlay: () => call<void>('hide_overlay'),
   openConfig: () => call<void>('open_config'),
   openLogs: () => call<void>('open_logs'),
+  openUrl: (url: string) => call<void>('open_url', { url }),
   getSettings: () => call<SettingsView>('get_settings'),
   saveSettings: (settings: Settings) => call<void>('save_settings', { settings }),
   repairShortcuts: () => call<void>('repair_shortcuts'),
   pauseShortcuts: (paused: boolean) => call<void>('pause_shortcuts', { paused }),
+  getAutostart: () => call<boolean>('get_autostart'),
+  setAutostart: (on: boolean) => call<void>('set_autostart', { on }),
   runAction: (id: number, name: string) => call<ActionReport>('run_action', { id, name }),
   trustAction: (name: string, sha256: string) => call<void>('trust_action', { name, sha256 })
 };

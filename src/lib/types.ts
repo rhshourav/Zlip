@@ -122,6 +122,8 @@ export interface Settings {
 export interface SettingsView {
   config: Settings;
   version: string;
+  /** The project page on GitHub. It comes from the app itself, not from the settings file. */
+  repo_url: string;
   config_path: string;
   log_dir: string;
   /** `unavailable`: Windows refused the backup shortcut (another program uses it). */

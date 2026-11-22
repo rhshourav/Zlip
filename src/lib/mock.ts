@@ -88,6 +88,7 @@ const mockConfig = (): UiConfig => ({
 });
 
 let privateMode = false;
+let autostart = false;
 let queue: QueueView = { mode: 'idle', len: 0, next_preview: null };
 const queued: number[] = [];
 
@@ -205,15 +206,18 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
         return null;
       case 'status': return { private_mode: privateMode, queue } satisfies StatusView;
       case 'set_private_mode': privateMode = Boolean(args.on); return null;
+      case 'get_autostart': return autostart;
+      case 'set_autostart': autostart = Boolean(args.on); return null;
       case 'ui_config': return mockConfig();
       case 'get_settings':
-        return { config: structuredClone(settings), version: '0.1.0', config_path: 'C:\\Users\\you\\AppData\\Roaming\\zlip\\config.toml', log_dir: 'C:\\Users\\you\\AppData\\Local\\zlip\\logs', backup_shortcut: settings.hotkeys.open_overlay_backup ? 'active' : 'off' } satisfies SettingsView;
+        return { config: structuredClone(settings), version: '0.1.0', repo_url: 'https://github.com/rhshourav/zlip', config_path: 'C:\\Users\\you\\AppData\\Roaming\\zlip\\config.toml', log_dir: 'C:\\Users\\you\\AppData\\Local\\zlip\\logs', backup_shortcut: settings.hotkeys.open_overlay_backup ? 'active' : 'off' } satisfies SettingsView;
       case 'save_settings':
         settings = structuredClone(args.settings as Settings);
         emit('zlip:config', mockConfig());
         return null;
       case 'repair_shortcuts':
       case 'pause_shortcuts':
+      case 'open_url':
       case 'open_logs':
       case 'open_config':
         return null;

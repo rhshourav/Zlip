@@ -27,7 +27,7 @@
       oninput={(e) => ov.setQuery(e.currentTarget.value)}
     />
     <!-- Status tags only exist while they are true, so the bar stays empty the rest of the time. -->
-    {#if ov.queue.mode !== 'idle'}
+    {#if ov.queue.mode !== 'idle' && ov.queue.len > 0}
       <button class="tag" onclick={() => void ov.clearQueue()} title="Clear the paste queue" aria-label="Clear the paste queue ({ov.queue.len} items)">
         <Icon name="queue" size={12} />
         {ov.queue.mode === 'collecting' ? 'Collecting' : 'Pasting'}

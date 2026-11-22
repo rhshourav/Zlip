@@ -1,0 +1,290 @@
+diff --git a/src-tauri/src/app.rs b/src-tauri/src/app.rs
+index 38a2081..b0a880c 100644
+--- a/src-tauri/src/app.rs
++++ b/src-tauri/src/app.rs
+@@ -45,4 +45,6 @@
+             commands::run_action,
+             commands::trust_action,
++            commands::get_autostart,
++            commands::set_autostart,
+         ])
+         .setup(setup)
+diff --git a/src-tauri/src/commands.rs b/src-tauri/src/commands.rs
+index 00f122d..4a05f84 100644
+--- a/src-tauri/src/commands.rs
++++ b/src-tauri/src/commands.rs
+@@ -46,4 +46,20 @@ pub async fn pause_shortcuts(paused: bool) -> CmdResult<()> {
+ }
+ 
++/// Whether Zlip starts with Windows. It is a per-user entry, so it needs no administrator rights.
++#[tauri::command]
++pub async fn get_autostart() -> CmdResult<bool> {
++    tauri::async_runtime::spawn_blocking(crate::startup::is_enabled)
++        .await
++        .map_err(|e| e.to_string())?
++}
++
++/// Turn "start with Windows" on or off.
++#[tauri::command]
++pub async fn set_autostart(on: bool) -> CmdResult<()> {
++    tauri::async_runtime::spawn_blocking(move || crate::startup::set_enabled(on))
++        .await
++        .map_err(|e| e.to_string())?
++}
++
+ #[tauri::command]
+ pub async fn open_logs() -> CmdResult<()> {
+diff --git a/src-tauri/src/main.rs b/src-tauri/src/main.rs
+index da43475..82839fe 100644
+--- a/src-tauri/src/main.rs
++++ b/src-tauri/src/main.rs
+@@ -11,4 +11,5 @@ mod links;
+ mod logging;
+ mod paste;
++mod startup;
+ mod state;
+ mod tray;
+diff --git a/src-tauri/src/startup.rs b/src-tauri/src/startup.rs
+new file mode 100644
+index 0000000..3e4effc
+--- /dev/null
++++ b/src-tauri/src/startup.rs
+@@ -0,0 +1,167 @@
++//! "Start with Windows": a per-user entry under `HKCU\...\Run`. It needs no administrator
++//! rights and shows up in Task Manager's Startup tab, where the user can also turn it off.
++//!
++//! It is read and written with the `reg.exe` that ships with Windows, so Zlip needs no extra
++//! crate and no `unsafe` for it. Every function here blocks for a few milliseconds: call
++//! them from a blocking task, never straight from the UI thread.
++
++use std::{
++    path::{Path, PathBuf},
++    process::{Command, Output},
++};
++
++const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
++const VALUE_NAME: &str = "Zlip";
++
++/// `reg.exe` from the system folder, not whichever one comes first on `PATH`.
++fn reg_exe() -> PathBuf {
++    std::env::var_os("SystemRoot").map_or_else(
++        || PathBuf::from("reg.exe"),
++        |root| PathBuf::from(root).join("System32").join("reg.exe"),
++    )
++}
++
++fn reg(args: &[&str]) -> Result<Output, String> {
++    let mut cmd = Command::new(reg_exe());
++    cmd.args(args);
++    #[cfg(windows)]
++    {
++        use std::os::windows::process::CommandExt;
++        // Without this a console window flashes up, because Zlip itself has none.
++        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
++        cmd.creation_flags(CREATE_NO_WINDOW);
++    }
++    cmd.output()
++        .map_err(|e| format!("Could not run reg.exe: {e}"))
++}
++
++/// What Windows runs at sign-in: the full path of this program, in quotes (it may hold spaces).
++fn run_command(exe: &Path) -> String {
++    let path = exe.display().to_string();
++    // `current_exe` can hand back a `\\?\C:\...` path; the Run key wants the plain one.
++    let path = path.strip_prefix(r"\\?\").unwrap_or(&path);
++    format!("\"{path}\"")
++}
++
++fn this_command() -> Result<String, String> {
++    std::env::current_exe()
++        .map(|exe| run_command(&exe))
++        .map_err(|e| format!("Could not find where Zlip is installed: {e}"))
++}
++
++/// The data of the `Zlip` value in `reg query` output, if the output has one.
++///
++/// A value line reads `    Zlip    REG_SZ    "C:\...\zlip.exe"`: name, type and data, split by
++/// runs of spaces. Everything after the type is the data, spaces inside it included.
++fn parse_value(output: &str) -> Option<String> {
++    output.lines().find_map(|line| {
++        let rest = line.trim_start().strip_prefix(VALUE_NAME)?;
++        // The name must end here: "ZlipHelper" is a different value.
++        let rest = rest.strip_prefix(char::is_whitespace)?.trim_start();
++        let data = rest
++            .strip_prefix("REG_SZ")
++            .or_else(|| rest.strip_prefix("REG_EXPAND_SZ"))?;
++        Some(data.trim().to_owned())
++    })
++}
++
++/// Does the stored command start this copy of Zlip (and not an older or moved one)?
++///
++/// `reg.exe` prints in the console's code page, not UTF-8. When the text is not valid UTF-8
++/// (a user name with accents, say) the paths cannot be compared reliably, so an entry that
++/// exists is taken to be ours instead of reporting "off" for something that is on.
++fn points_here(output: &[u8], expected: &str) -> bool {
++    match std::str::from_utf8(output) {
++        Ok(text) => parse_value(text).is_some_and(|stored| stored.eq_ignore_ascii_case(expected)),
++        Err(_) => true,
++    }
++}
++
++/// Is Zlip set to start with Windows?
++pub fn is_enabled() -> Result<bool, String> {
++    let out = reg(&["query", RUN_KEY, "/v", VALUE_NAME])?;
++    // `reg query` exits with 1 when the value does not exist.
++    Ok(out.status.success() && points_here(&out.stdout, &this_command()?))
++}
++
++/// Turn start-up on (pointing at this copy of Zlip) or off.
++pub fn set_enabled(on: bool) -> Result<(), String> {
++    let out = if on {
++        let command = this_command()?;
++        reg(&[
++            "add", RUN_KEY, "/v", VALUE_NAME, "/t", "REG_SZ", "/d", &command, "/f",
++        ])?
++    } else {
++        // Already off counts as done: `reg delete` fails on a value that is not there.
++        if !reg(&["query", RUN_KEY, "/v", VALUE_NAME])?.status.success() {
++            return Ok(());
++        }
++        reg(&["delete", RUN_KEY, "/v", VALUE_NAME, "/f"])?
++    };
++    if out.status.success() {
++        Ok(())
++    } else {
++        let why = String::from_utf8_lossy(&out.stderr);
++        Err(format!("Windows did not accept the change: {}", why.trim()))
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const EXE: &str = r"C:\Program Files\Zlip\zlip.exe";
++
++    fn query_output(data_line: &str) -> String {
++        format!(
++            "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n{data_line}\r\n\r\n"
++        )
++    }
++
++    #[test]
++    fn quotes_the_path_so_spaces_survive() {
++        assert_eq!(run_command(Path::new(EXE)), format!("\"{EXE}\""));
++    }
++
++    #[test]
++    fn drops_the_extended_length_prefix() {
++        let with_prefix = format!(r"\\?\{EXE}");
++        assert_eq!(run_command(Path::new(&with_prefix)), format!("\"{EXE}\""));
++    }
++
++    #[test]
++    fn reads_the_value_out_of_reg_output() {
++        let out = query_output(&format!("    Zlip    REG_SZ    \"{EXE}\""));
++        assert_eq!(parse_value(&out), Some(format!("\"{EXE}\"")));
++    }
++
++    #[test]
++    fn ignores_other_values_and_empty_output() {
++        let other = query_output("    ZlipHelper    REG_SZ    \"C:\\x.exe\"");
++        assert_eq!(parse_value(&other), None);
++        let unrelated = query_output("    OneDrive    REG_SZ    \"C:\\y.exe\"");
++        assert_eq!(parse_value(&unrelated), None);
++        assert_eq!(parse_value(""), None);
++    }
++
++    #[test]
++    fn our_own_entry_is_recognised_whatever_the_case() {
++        let ours = format!("\"{EXE}\"");
++        let out = query_output(&format!("    Zlip    REG_SZ    {}", ours.to_uppercase()));
++        assert!(points_here(out.as_bytes(), &ours));
++    }
++
++    #[test]
++    fn an_entry_for_another_copy_is_not_ours() {
++        let out = query_output("    Zlip    REG_SZ    \"D:\\old\\zlip.exe\"");
++        assert!(!points_here(out.as_bytes(), &format!("\"{EXE}\"")));
++    }
++
++    #[test]
++    fn text_in_another_code_page_counts_as_ours() {
++        // 0xE9 is "é" in the common OEM/ANSI code pages and is not valid UTF-8 on its own.
++        let mut out = b"    Zlip    REG_SZ    \"C:\\Users\\Jos".to_vec();
++        out.extend_from_slice(&[0xE9, b'\\', b'z', b'.', b'e', b'x', b'e', b'"']);
++        assert!(points_here(&out, "\"C:\\Users\\Jos\u{e9}\\z.exe\""));
++    }
++}
+diff --git a/src/components/Settings.svelte b/src/components/Settings.svelte
+index b3fd34c..a28546b 100644
+--- a/src/components/Settings.svelte
++++ b/src/components/Settings.svelte
+@@ -65,4 +65,26 @@
+   }
+ 
++  // ---- start with Windows: kept in the Windows registry, not in the settings file ----
++  let startup = $state<boolean | null>(null); // null until Windows has answered
++  $effect(() => {
++    api.getAutostart().then(
++      (on) => {
++        if (startup === null) startup = on; // a switch flipped meanwhile wins
++      },
++      () => (startup = null)
++    );
++  });
++
++  async function setStartup(on: boolean): Promise<void> {
++    const before = startup;
++    startup = on; // show the change at once; undone below if Windows refuses it
++    try {
++      await api.setAutostart(on);
++    } catch (e) {
++      startup = before;
++      ov.showNotice({ level: 'error', message: String(e) });
++    }
++  }
++
+   // ---- clearing history asks twice, in place, instead of opening a dialog ----
+   let confirming = $state(false);
+@@ -208,4 +230,11 @@
+         <h2>Behavior</h2>
+         <div class="group">
++          <div class="r">
++            <span class="l">
++              Start with Windows
++              <small>Opens quietly in the tray when you sign in.</small>
++            </span>
++            <Toggle label="Start with Windows" checked={startup === true} onchange={(v) => void setStartup(v)} />
++          </div>
+           <div class="r">
+             <span class="l">
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index 00687e2..e2aea06 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -43,4 +43,6 @@
+   repairShortcuts: () => call<void>('repair_shortcuts'),
+   pauseShortcuts: (paused: boolean) => call<void>('pause_shortcuts', { paused }),
++  getAutostart: () => call<boolean>('get_autostart'),
++  setAutostart: (on: boolean) => call<void>('set_autostart', { on }),
+   runAction: (id: number, name: string) => call<ActionReport>('run_action', { id, name }),
+   trustAction: (name: string, sha256: string) => call<void>('trust_action', { name, sha256 })
+diff --git a/src/lib/mock.ts b/src/lib/mock.ts
+index 14d6428..971081e 100644
+--- a/src/lib/mock.ts
++++ b/src/lib/mock.ts
+@@ -43,4 +43,5 @@
+ 
+ let privateMode = false;
++let autostart = false;
+ let queue: QueueView = { mode: 'idle', len: 0, next_preview: null };
+ const queued: number[] = [];
+@@ -87,4 +88,6 @@ const queued: number[] = [];
+       case 'status': return { private_mode: privateMode, queue } satisfies StatusView;
+       case 'set_private_mode': privateMode = Boolean(args.on); return null;
++      case 'get_autostart': return autostart;
++      case 'set_autostart': autostart = Boolean(args.on); return null;
+       case 'ui_config': return mockConfig();
+       case 'get_settings':

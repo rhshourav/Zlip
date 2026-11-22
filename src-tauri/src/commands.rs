@@ -174,6 +174,8 @@ pub async fn hide_overlay(shared: Shr<'_>) -> CmdResult<()> {
 pub struct SettingsView {
     pub config: Config,
     pub version: &'static str,
+    /// The project page on GitHub: Settings links to it and looks there for updates.
+    pub repo_url: &'static str,
     pub config_path: String,
     pub log_dir: String,
     /// `off`, `active` or `unavailable` (Windows refused the backup shortcut).
@@ -185,6 +187,7 @@ pub async fn get_settings(shared: Shr<'_>) -> CmdResult<SettingsView> {
     Ok(SettingsView {
         config: (*shared.cfg.snapshot()).clone(),
         version: env!("CARGO_PKG_VERSION"),
+        repo_url: crate::links::REPO_URL,
         config_path: zlip_config::config_path().display().to_string(),
         log_dir: zlip_config::data_dir().join("logs").display().to_string(),
         backup_shortcut: zlip_platform::backup_state().as_str(),
@@ -226,6 +229,22 @@ pub async fn repair_shortcuts(shared: Shr<'_>) -> CmdResult<()> {
 pub async fn pause_shortcuts(paused: bool) -> CmdResult<()> {
     zlip_platform::set_paused(paused);
     Ok(())
+}
+
+/// Whether Zlip starts with Windows. It is a per-user entry, so it needs no administrator rights.
+#[tauri::command]
+pub async fn get_autostart() -> CmdResult<bool> {
+    tauri::async_runtime::spawn_blocking(crate::startup::is_enabled)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Turn "start with Windows" on or off.
+#[tauri::command]
+pub async fn set_autostart(on: bool) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || crate::startup::set_enabled(on))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

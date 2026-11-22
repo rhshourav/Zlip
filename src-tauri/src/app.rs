@@ -1,7 +1,7 @@
 //! Start-up and shutdown.
 
 use crate::{
-    commands, controller, logging,
+    commands, controller, links, logging,
     state::{Control, Shared},
     tray, windows,
 };
@@ -100,8 +100,11 @@ pub fn run() {
             commands::repair_shortcuts,
             commands::pause_shortcuts,
             commands::open_logs,
+            links::open_url,
             commands::run_action,
             commands::trust_action,
+            commands::get_autostart,
+            commands::set_autostart,
         ])
         .setup(setup)
         .build(tauri::generate_context!());

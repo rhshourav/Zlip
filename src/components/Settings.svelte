@@ -6,6 +6,7 @@
   import { api } from '../lib/api';
   import { hasModifier, hasWin, withWin } from '../lib/chords';
   import { ov } from '../lib/overlay.svelte';
+  import { checkForUpdate, type UpdateState } from '../lib/update';
 
   interface Opt<T> {
     value: T;
@@ -63,6 +64,28 @@
     ov.change((cfg) => (cfg.hotkeys.open_overlay = next));
   }
 
+  // ---- start with Windows: kept in the Windows registry, not in the settings file ----
+  let startup = $state<boolean | null>(null); // null until Windows has answered
+  $effect(() => {
+    api.getAutostart().then(
+      (on) => {
+        if (startup === null) startup = on; // a switch flipped meanwhile wins
+      },
+      () => (startup = null)
+    );
+  });
+
+  async function setStartup(on: boolean): Promise<void> {
+    const before = startup;
+    startup = on; // show the change at once; undone below if Windows refuses it
+    try {
+      await api.setAutostart(on);
+    } catch (e) {
+      startup = before;
+      ov.showNotice({ level: 'error', message: String(e) });
+    }
+  }
+
   // ---- clearing history asks twice, in place, instead of opening a dialog ----
   let confirming = $state(false);
   let confirmTimer: ReturnType<typeof setTimeout> | undefined;
@@ -75,6 +98,39 @@
     clearTimeout(confirmTimer);
     confirming = false;
     void ov.clearHistory();
+  }
+
+  // ---- about: the repository link and the update check ----
+  const repoUrl = $derived(ov.settings?.repo_url ?? '');
+  const repoLabel = $derived(repoUrl.replace(/^https?:\/\//, ''));
+
+  let update = $state<UpdateState>({ status: 'idle' });
+  /** Set only while a newer release is known; the page to open for it. */
+  const releaseUrl = $derived(update.status === 'available' ? update.url : null);
+  const updateText = $derived.by(() => {
+    switch (update.status) {
+      case 'checking':
+        return 'Checking…';
+      case 'current':
+        return `You have the latest version (${update.latest}).`;
+      case 'available':
+        return `Version ${update.latest} is available.`;
+      case 'error':
+        return update.message;
+      default:
+        return 'Looks at GitHub only when you ask.';
+    }
+  });
+
+  async function checkUpdates(): Promise<void> {
+    if (!ov.settings || update.status === 'checking') return;
+    update = { status: 'checking' };
+    update = await checkForUpdate(ov.settings.repo_url, ov.settings.version);
+  }
+
+  /** The app only opens pages of its own repository; anything else is refused on the Rust side. */
+  function openPage(url: string): void {
+    void api.openUrl(url).catch((e: unknown) => ov.showNotice({ level: 'error', message: String(e) }));
   }
 </script>
 
@@ -175,6 +231,13 @@
         <div class="group">
           <div class="r">
             <span class="l">
+              Start with Windows
+              <small>Opens quietly in the tray when you sign in.</small>
+            </span>
+            <Toggle label="Start with Windows" checked={startup === true} onchange={(v) => void setStartup(v)} />
+          </div>
+          <div class="r">
+            <span class="l">
               Open at the text cursor
               <small>Otherwise it opens at the bottom of the screen.</small>
             </span>
@@ -232,8 +295,29 @@
         <h2>About</h2>
         <div class="group">
           <div class="r">
-            <span class="l">Zlip</span>
+            <span class="l">
+              Zlip
+              <small>Made by rhshourav</small>
+            </span>
             <span class="val">Version {ov.settings.version}</span>
+          </div>
+          <div class="r">
+            <span class="l">
+              Source code
+              <small class="path">{repoLabel}</small>
+            </span>
+            <button class="btn" onclick={() => openPage(repoUrl)}>Open</button>
+          </div>
+          <div class="r">
+            <span class="l">
+              Updates
+              <small class:err={update.status === 'error'} aria-live="polite">{updateText}</small>
+            </span>
+            {#if releaseUrl}
+              <button class="btn primary" onclick={() => openPage(releaseUrl)}>View release</button>
+            {:else}
+              <button class="btn" disabled={update.status === 'checking'} onclick={() => void checkUpdates()}>Check</button>
+            {/if}
           </div>
           <div class="r">
             <span class="l">
@@ -361,6 +445,9 @@
   .r.bad .l {
     color: var(--danger);
     font-size: 12px;
+  }
+  small.err {
+    color: var(--danger);
   }
   .val {
     font-size: 12px;
