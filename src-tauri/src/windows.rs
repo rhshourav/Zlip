@@ -14,7 +14,7 @@ use zlip_config::{Config, Position};
 use zlip_core::geometry::place_overlay;
 use zlip_platform::{
     Backdrop, WindowHandle, apply_native_backdrop, apps_use_light_theme, caret_rect,
-    force_foreground, foreground_window, set_noactivate_toolwindow, show_no_activate,
+    force_foreground, foreground_window, hide_window, set_noactivate_toolwindow, show_no_activate,
     work_area_for,
 };
 
@@ -233,7 +233,9 @@ pub fn update_hud(shared: &Shared) {
     // Nothing queued means nothing to show. That also covers "collecting" before the
     // first copy: the pill appears with the first item.
     if view.mode == "idle" || view.len == 0 {
-        let _ = hud.hide();
+        // Not `hud.hide()`: the pill is shown with a plain `ShowWindow`, so Tauri still believes
+        // it is hidden and `hide()` would do nothing, leaving the pill on screen for good.
+        hide_window(native_handle(&hud));
     } else {
         if let Ok(size) = hud.outer_size() {
             let work = work_area_for(WindowHandle(0));
