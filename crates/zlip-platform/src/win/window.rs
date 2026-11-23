@@ -21,8 +21,8 @@ use windows_sys::Win32::{
         WindowsAndMessaging::{
             BringWindowToTop, GUITHREADINFO, GWL_EXSTYLE, GetCursorPos, GetForegroundWindow,
             GetGUIThreadInfo, GetWindowLongPtrW, GetWindowTextW, GetWindowThreadProcessId,
-            IsWindow, SW_SHOWNOACTIVATE, SetForegroundWindow, SetWindowLongPtrW, ShowWindow,
-            WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+            IsWindow, SW_HIDE, SW_SHOWNOACTIVATE, SetForegroundWindow, SetWindowLongPtrW,
+            ShowWindow, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
         },
     },
 };
@@ -211,6 +211,17 @@ pub fn set_noactivate_toolwindow(h: WindowHandle) {
             GWL_EXSTYLE,
             ex | (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW) as isize,
         );
+    }
+}
+
+/// Hide a window that was shown with [`show_no_activate`].
+///
+/// Use this and not the webview's own `hide()`: a plain `ShowWindow` never tells Tauri the
+/// window became visible, so Tauri thinks it is still hidden and its `hide()` does nothing.
+pub fn hide_window(h: WindowHandle) {
+    if !h.is_null() {
+        // SAFETY: invalid handles fail harmlessly.
+        unsafe { ShowWindow(hwnd(h), SW_HIDE) };
     }
 }
 
