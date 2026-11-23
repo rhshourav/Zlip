@@ -23,6 +23,6 @@ pub use system::{
     windows_build,
 };
 pub use window::{
-    caret_rect, force_foreground, foreground_window, is_window, restore_focus,
+    caret_rect, force_foreground, foreground_window, hide_window, is_window, restore_focus,
     set_noactivate_toolwindow, show_no_activate, work_area_for,
 };
