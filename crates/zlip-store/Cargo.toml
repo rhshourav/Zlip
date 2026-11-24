@@ -14,7 +14,6 @@ workspace = true
 [dependencies]
 zlip-core.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 rusqlite.workspace = true
 chacha20poly1305.workspace = true
 blake3.workspace = true

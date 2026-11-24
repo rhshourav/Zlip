@@ -18,3 +18,4 @@ Thumbs.db
 /winget-manifests/
 /winget-test/
 /release-body.md
+*.patch
