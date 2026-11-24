@@ -438,6 +438,17 @@ impl Store {
         Ok(())
     }
 
+    /// Make an item the newest one, as if it had just been copied again. The time only
+    /// moves forward, so a clock that stepped back cannot push an item down the list.
+    /// Returns `false` when there is no such item.
+    pub fn bump(&self, id: ItemId, now_ms: i64) -> Result<bool, StoreError> {
+        let changed = self.conn.execute(
+            "UPDATE items SET created_at = MAX(created_at, ?1) WHERE id = ?2",
+            params![now_ms, id.0 as i64],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn delete(&self, id: ItemId) -> Result<bool, StoreError> {
         let name: Option<Option<String>> = self
             .conn
@@ -680,6 +691,22 @@ mod tests {
             (m.pinned, m.folder.as_deref(), m.use_count, m.last_used_ms),
             (true, Some("Terminal"), 2, 60)
         );
+    }
+
+    #[test]
+    fn bump_makes_an_item_the_newest_and_never_moves_it_back() {
+        let f = fixture();
+        let mut st = Store::open(&f.db, &f.images, &key(1)).unwrap();
+        let old = add(&mut st, &text("old"), Category::Text, 100).id;
+        add(&mut st, &text("new"), Category::Text, 200);
+        assert!(st.bump(old, 300).unwrap());
+        let (items, _) = st.load_index().unwrap();
+        assert_eq!(items[0].text.as_deref(), Some("old"));
+        assert_eq!(items[0].meta.created_at_ms, 300);
+        // A clock that stepped back changes nothing.
+        assert!(st.bump(old, 50).unwrap());
+        assert_eq!(st.load_index().unwrap().0[0].meta.created_at_ms, 300);
+        assert!(!st.bump(ItemId(999), 400).unwrap(), "no such item");
     }
 
     #[test]

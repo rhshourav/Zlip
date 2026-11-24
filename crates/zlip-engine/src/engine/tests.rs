@@ -582,14 +582,16 @@ fn search_scopes_by_category_and_pinned_folder() {
 
 #[test]
 fn retention_and_clear_history_spare_pinned_items() {
-    let mut cfg = Config::default();
-    cfg.retention.max_items = 10;
-    let mut f = fx_with(cfg);
+    let mut f = fx();
     let keep = stored_id(&f.e.ingest(cap("keep me", 1, f.t0)));
     f.e.toggle_pin(keep);
     for n in 0..14 {
         f.e.ingest(cap(&format!("item {n}"), 100 + n, f.t0));
     }
+    // The limit is lowered afterwards (settings changed), so the clean-up has work to do.
+    let mut lowered = Config::default();
+    lowered.retention.max_items = 10;
+    f.cfg.set(lowered);
     assert_eq!(
         f.e.enforce_retention(10_000),
         4,
@@ -722,4 +724,83 @@ fn debug_output_leaks_nothing() {
         f.e.prepare_text_paste("top secret".into(), &PasteOptions::default())
             .unwrap();
     assert!(!format!("{p:?}").contains("top secret"));
+}
+
+#[test]
+fn pasting_from_the_list_moves_the_item_to_the_top_and_only_history_items_move() {
+    let mut f = fx_with(with_snippet());
+    let a = stored_id(&f.e.ingest(cap("alpha", 1, f.t0)));
+    let b = stored_id(&f.e.ingest(cap("beta", 2, f.t0)));
+    let c = stored_id(&f.e.ingest(cap("gamma", 3, f.t0)));
+    let ids = |f: &mut Fx| {
+        f.e.search(&q(""), f.t0)
+            .iter()
+            .map(|v| v.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&mut f), vec![c.0, b.0, a.0]);
+
+    assert!(f.e.bump_to_top(a, 10));
+    assert_eq!(ids(&mut f), vec![a.0, c.0, b.0]);
+    assert_eq!(f.e.search(&q(""), f.t0)[0].created_at_ms, 10);
+    assert!(f.e.bump_to_top(a, 11), "already on top is fine");
+    assert_eq!(ids(&mut f), vec![a.0, c.0, b.0]);
+
+    // Not history items: unknown ids, secrets and config snippets stay where they are.
+    assert!(!f.e.bump_to_top(ItemId(999), 12));
+    let secret = stored_id(&f.e.ingest(cap("AKIAIOSFODNN7EXAMPLE", 13, f.t0)));
+    assert!(!f.e.bump_to_top(secret, 14));
+    let folder = SearchQuery {
+        folder: Some("Terminal".into()),
+        limit: 50,
+        ..SearchQuery::default()
+    };
+    let snippet = ItemId(f.e.search(&folder, f.t0)[0].id);
+    assert!(!f.e.bump_to_top(snippet, 15));
+}
+
+#[test]
+fn an_item_you_just_used_outlives_older_ones_when_the_history_is_full() {
+    let mut cfg = Config::default();
+    cfg.retention.max_items = 10;
+    let mut f = fx_with(cfg);
+    let first = stored_id(&f.e.ingest(cap("item 0", 100, f.t0)));
+    for n in 1..10 {
+        f.e.ingest(cap(&format!("item {n}"), 100 + n, f.t0));
+    }
+    assert!(f.e.bump_to_top(first, 500));
+    for n in 10..13 {
+        f.e.ingest(cap(&format!("item {n}"), 600 + n, f.t0));
+    }
+    let left: Vec<String> =
+        f.e.search(&q(""), f.t0)
+            .into_iter()
+            .map(|v| v.preview)
+            .collect();
+    assert_eq!(left.len(), 10);
+    assert!(left.contains(&"item 0".to_owned()), "used recently: kept");
+    for gone in ["item 1", "item 2", "item 3"] {
+        assert!(!left.contains(&gone.to_owned()), "{gone} was the oldest");
+    }
+}
+
+#[test]
+fn the_history_limit_holds_as_items_arrive_not_only_every_ten_minutes() {
+    let mut cfg = Config::default();
+    cfg.retention.max_items = 10;
+    let mut f = fx_with(cfg);
+    let keep = stored_id(&f.e.ingest(cap("keep me", 1, f.t0)));
+    f.e.toggle_pin(keep);
+    for n in 0..25 {
+        f.e.ingest(cap(&format!("item {n}"), 100 + n, f.t0));
+    }
+    let listed = f.e.search(&q(""), f.t0);
+    assert_eq!(listed.len(), 11, "the 10 newest plus the pinned one");
+    assert_eq!(listed[0].preview, "item 24");
+    assert_eq!(listed[9].preview, "item 15");
+    assert_eq!(listed[10].id, keep.0, "pinned items are exempt");
+
+    // Copying something already in the history adds nothing, so nothing is dropped.
+    f.e.ingest(cap("item 15", 900, f.t0));
+    assert_eq!(f.e.search(&q(""), f.t0).len(), 11);
 }

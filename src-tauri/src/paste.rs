@@ -178,7 +178,16 @@ fn deliver(
         sleep(Duration::from_millis(70));
         let _ = send_left_arrows(prepared.cursor_back);
     }
-    shared.engine().mark_used(prepared.id, now_ms());
+    {
+        let used_at = now_ms();
+        let mut engine = shared.engine();
+        engine.mark_used(prepared.id, used_at);
+        // Using an item from the list makes it the newest one, like copying it again would.
+        // A queued paste keeps the list as it is.
+        if from_overlay {
+            engine.bump_to_top(prepared.id, used_at);
+        }
+    }
     let sensitive = prepared.sensitive;
     drop(prepared); // wipes pasted secret text from our memory
 

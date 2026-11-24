@@ -390,11 +390,24 @@ impl Engine {
             );
         }
         let queued = enqueue && self.queue.push(stored.id);
+        if !stored.duplicate {
+            self.trim_to_limit(cfg.retention.max_items as usize, now_ms);
+        }
         CaptureOutcome::Stored {
             id: stored.id,
             category,
             duplicate: stored.duplicate,
             queued,
+        }
+    }
+
+    /// Keep the history at its size limit as it grows, instead of waiting for the
+    /// periodic clean-up (every ten minutes). Pinned items do not count towards the limit.
+    fn trim_to_limit(&mut self, max_items: usize, now_ms: i64) {
+        let unpinned = self.entries.iter().filter(|e| !e.pinned).count();
+        if unpinned > max_items {
+            let removed = self.enforce_retention(now_ms);
+            tracing::debug!(removed, "history trimmed to its limit");
         }
     }
 
@@ -756,6 +769,22 @@ impl Engine {
         if !self.is_secret(id) && id.0 < VIRTUAL_BASE && id.0 != 0 {
             let _ = self.store.touch(id, now_ms);
         }
+    }
+
+    /// Make a history item the newest one, as if it had just been copied again. Used when
+    /// an item is pasted from the overlay. Secrets and config snippets are not in the
+    /// history list, so they are left alone. Returns whether the item moved.
+    pub fn bump_to_top(&mut self, id: ItemId, now_ms: i64) -> bool {
+        let Some(pos) = self.entries.iter().position(|e| e.id == id) else {
+            return false;
+        };
+        if !matches!(self.store.bump(id, now_ms), Ok(true)) {
+            return false;
+        }
+        let mut entry = self.entries.remove(pos);
+        entry.created_ms = entry.created_ms.max(now_ms);
+        self.entries.insert(0, entry);
+        true
     }
 
     // ------------------------------------------------------------ edits
