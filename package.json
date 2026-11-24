@@ -1,7 +1,7 @@
 {
   "name": "zlip",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.5.0",
   "description": "Zlip: fast, private, glass-styled clipboard manager",
   "license": "MIT",
   "type": "module",
