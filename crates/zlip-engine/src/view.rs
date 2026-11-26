@@ -1,7 +1,7 @@
 //! Plain data sent to the UI. All field names are `snake_case`, like the config.
 
 use serde::Serialize;
-use zlip_config::{Config, Hotkeys, Theme, Ui};
+use zlip_config::{Config, Hotkeys, PasswordGenerator, Theme, Ui};
 use zlip_core::Category;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -121,6 +121,8 @@ pub struct UiConfig {
     pub hotkeys: Hotkeys,
     pub theme: Theme,
     pub ui: Ui,
+    /// The generator's settings: the overlay needs to know whether to offer it, and what it makes.
+    pub password_generator: PasswordGenerator,
     pub os: OsView,
     pub action_names: Vec<String>,
 }
@@ -132,6 +134,7 @@ impl UiConfig {
             hotkeys: cfg.hotkeys.clone(),
             theme: cfg.theme.clone(),
             ui: cfg.ui.clone(),
+            password_generator: cfg.password_generator.clone(),
             os: OsView {
                 rounded: os.build >= 22000,
                 native_backdrop: os.native_backdrop,

@@ -4,6 +4,12 @@ use chacha20poly1305::{
 };
 use zeroize::Zeroizing;
 
+/// Fill `buf` from the operating system's secure random generator, the one the master key
+/// comes from. `false` means the system could not provide random bytes.
+pub fn fill_random(buf: &mut [u8]) -> bool {
+    getrandom::fill(buf).is_ok()
+}
+
 /// 32 random bytes, wiped on drop. Sub-keys are derived with BLAKE3 so that
 /// encryption and deduplication never share a key.
 pub struct MasterKey(Zeroizing<[u8; 32]>);

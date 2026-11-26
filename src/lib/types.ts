@@ -88,6 +88,22 @@ export interface Hotkeys {
   close: string;
   prev_category: string;
   next_category: string;
+  /** In the overlay: open the password generator, and make a new password while it is open. */
+  generate_password: string;
+}
+
+/** The built-in password generator's settings. */
+export interface PasswordGeneratorSettings {
+  /** Off hides the key button and ignores the shortcut. */
+  enabled: boolean;
+  /** 8 to 128 characters. */
+  length: number;
+  lowercase: boolean;
+  uppercase: boolean;
+  digits: boolean;
+  symbols: boolean;
+  /** Leave out O 0 o I l 1, which are easy to mix up. */
+  avoid_lookalikes: boolean;
 }
 
 export type CategoryColors = Record<Category, string>;
@@ -102,6 +118,7 @@ export interface UiConfig {
     categories: CategoryColors;
   };
   ui: { width: number; height: number; position: 'caret' | 'center'; search_limit: number; close_on_blur: boolean; hint_hide_after: number };
+  password_generator: PasswordGeneratorSettings;
   os: { rounded: boolean; native_backdrop: boolean; transparency: boolean; dark: boolean };
   action_names: string[];
 }
@@ -114,6 +131,7 @@ export interface Settings {
   ui: UiConfig['ui'];
   retention: { max_items: number; max_age: string; max_image_mb: number; max_text_kb: number };
   security: { sensitive_ttl_secs: number; min_token_len: number; min_entropy_bits: number; blacklist_exes: string[]; blacklist_titles: string[] };
+  password_generator: PasswordGeneratorSettings;
   snippet_folders: unknown[];
   actions: unknown[];
   automations: unknown[];

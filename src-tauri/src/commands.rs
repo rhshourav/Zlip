@@ -107,6 +107,26 @@ pub async fn save_text(shared: Shr<'_>, text: String) -> CmdResult<()> {
     }
 }
 
+/// A new random password that follows the generator settings. The text goes to the overlay
+/// only: it is saved to the history when the user copies or pastes it, like any other copy.
+#[tauri::command]
+pub async fn generate_password(shared: Shr<'_>) -> CmdResult<String> {
+    shared.engine().generate_password()
+}
+
+/// Put text on the clipboard as an ordinary copy. Zlip's own clipboard watcher sees it and
+/// handles it like anything else you copy (history, secrets rules, private mode).
+#[tauri::command]
+pub async fn copy_text(text: String) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        zlip_platform::write_clipboard(zlip_platform::ClipboardContent::Text(&text))
+            .map(|_| ())
+            .map_err(|e| format!("Could not use the clipboard: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn toggle_pin(shared: Shr<'_>, id: u64) -> CmdResult<Option<bool>> {
     Ok(shared.engine().toggle_pin(ItemId(id)))

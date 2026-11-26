@@ -672,6 +672,20 @@ impl Engine {
         UiConfig::new(&self.cfg(), os)
     }
 
+    // ---------------------------------------------------------- generator
+
+    /// A new random password that follows the generator settings. The text is not stored
+    /// anywhere here: copying or pasting it goes through the normal capture path.
+    pub fn generate_password(&mut self) -> Result<String, String> {
+        let cfg = self.cfg();
+        if !cfg.password_generator.enabled {
+            return Err("The password generator is turned off in Settings.".into());
+        }
+        zlip_security::generate_password(&cfg.password_generator, &mut zlip_store::fill_random)
+            .map(|password| password.to_string())
+            .map_err(|e| e.to_string())
+    }
+
     // ------------------------------------------------------------- paste
 
     /// Resolve an item to what should land on the clipboard.

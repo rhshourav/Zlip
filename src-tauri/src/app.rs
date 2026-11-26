@@ -84,6 +84,8 @@ pub fn run() {
             commands::paste,
             commands::paste_text,
             commands::save_text,
+            commands::generate_password,
+            commands::copy_text,
             commands::toggle_pin,
             commands::delete_item,
             commands::clear_history,

@@ -37,7 +37,9 @@ class Overlay {
   /** Bumped on every show so the view can re-focus the search box. */
   shownTick = $state(0);
   /** Which screen is showing. */
-  view = $state<'list' | 'settings'>('list');
+  view = $state<'list' | 'settings' | 'generator'>('list');
+  /** The password on show in the generator. Kept only while that screen is open. */
+  password = $state('');
   /** The "Paste as" menu. */
   menuOpen = $state(false);
   /** Kinds present in the unfiltered history, so the filter row only offers what exists. */
@@ -45,6 +47,9 @@ class Overlay {
   settings = $state<SettingsView | null>(null);
   /** True while a shortcut is being recorded: Escape then belongs to the recorder. */
   recording = $state(false);
+
+  /** Whether the generator is offered at all (Settings → Password generator). */
+  generatorOn = $derived(this.config?.password_generator.enabled ?? false);
 
   selectedIndex = $derived(this.items.findIndex((i) => i.id === this.selectedId));
   selected = $derived<ItemView | null>(this.items[this.selectedIndex] ?? null);
@@ -96,6 +101,7 @@ class Overlay {
     this.revealed = null;
     this.selectedId = null;
     this.view = 'list';
+    this.password = '';
     this.menuOpen = false;
     this.recording = false;
     this.shownTick++;
@@ -145,14 +151,18 @@ class Overlay {
     void this.refresh();
   }
 
+  // A kind (Text, Files...) and a folder (Pinned, a snippet folder) are one choice, not two:
+  // together they would only show the pinned *files*, which is usually nothing at all.
   setCategory(c: Category | null): void {
     this.category = c;
+    if (c !== null) this.folder = null;
     this.collapse();
     void this.refresh();
   }
 
   setFolder(f: string | null): void {
     this.folder = this.folder === f ? null : f;
+    if (this.folder !== null) this.category = null;
     this.collapse();
     void this.refresh();
   }
@@ -221,6 +231,7 @@ class Overlay {
   async back(): Promise<void> {
     if (this.menuOpen) this.menuOpen = false;
     else if (this.view === 'settings') await this.closeSettings();
+    else if (this.view === 'generator') this.closeGenerator();
     else if (this.editing) this.editing = false;
     else if (this.revealed) this.hideSecret();
     else if (this.expandedId !== null) this.collapse();
@@ -300,6 +311,7 @@ class Overlay {
 
   async openSettings(): Promise<void> {
     this.menuOpen = false;
+    this.password = '';
     this.view = 'settings';
     await this.loadSettings();
   }
@@ -335,7 +347,8 @@ class Overlay {
       ...this.config,
       hotkeys: $state.snapshot(c.hotkeys),
       theme: $state.snapshot(c.theme),
-      ui: $state.snapshot(c.ui)
+      ui: $state.snapshot(c.ui),
+      password_generator: $state.snapshot(c.password_generator)
     };
     applyTheme(this.config);
   }
@@ -359,7 +372,13 @@ class Overlay {
       this.showNotice({ level: 'error', message: String(e) });
       await this.loadSettings();
       if (this.settings && this.config) {
-        this.config = { ...this.config, hotkeys: $state.snapshot(this.settings.config.hotkeys), theme: $state.snapshot(this.settings.config.theme), ui: $state.snapshot(this.settings.config.ui) };
+        this.config = {
+          ...this.config,
+          hotkeys: $state.snapshot(this.settings.config.hotkeys),
+          theme: $state.snapshot(this.settings.config.theme),
+          ui: $state.snapshot(this.settings.config.ui),
+          password_generator: $state.snapshot(this.settings.config.password_generator)
+        };
         applyTheme(this.config);
       }
     }
@@ -391,6 +410,58 @@ class Overlay {
     } catch (e) {
       this.showNotice({ level: 'error', message: String(e) });
     }
+  }
+
+  // ------------------------------------------------------- password generator
+
+  async openGenerator(): Promise<void> {
+    if (!this.generatorOn) return;
+    this.menuOpen = false;
+    this.collapse();
+    this.view = 'generator';
+    await this.newPassword();
+  }
+
+  closeGenerator(): void {
+    this.password = '';
+    this.view = 'list';
+    void this.refresh();
+  }
+
+  /** Make a fresh password from the saved generator settings (the random numbers come from Windows). */
+  async newPassword(): Promise<void> {
+    try {
+      this.password = await api.generatePassword();
+    } catch (e) {
+      this.password = '';
+      this.showNotice({ level: 'error', message: String(e) });
+    }
+  }
+
+  /** An ordinary copy: Zlip's clipboard watcher saves it like anything else you copy (not in private mode). */
+  async copyPassword(): Promise<void> {
+    if (!this.password) return;
+    try {
+      await api.copyText(this.password);
+      this.showNotice({ level: 'info', message: this.privateMode ? 'Copied. Private mode is on, so it is not saved.' : 'Copied.' });
+    } catch (e) {
+      this.showNotice({ level: 'error', message: String(e) });
+    }
+  }
+
+  /** Paste it where you were typing. Pasting does not go through the clipboard watcher, so it is saved here. */
+  async pastePassword(): Promise<void> {
+    const text = this.password;
+    if (!text) return;
+    if (!this.privateMode) {
+      try {
+        await api.saveText(text);
+      } catch {
+        /* not being saved must never stop the paste */
+      }
+    }
+    this.password = '';
+    await api.pasteText(text, []);
   }
 
   // --------------------------------------------------------------- secrets

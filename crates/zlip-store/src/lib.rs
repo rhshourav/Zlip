@@ -16,7 +16,7 @@
 mod crypto;
 mod store;
 
-pub use crypto::MasterKey;
+pub use crypto::{MasterKey, fill_random};
 pub use store::{
     IndexedItem, Inserted, NewItem, RetentionPolicy, Store, StoreError, StoredItem, StoredKind,
 };

@@ -42,6 +42,11 @@
       </button>
     {/if}
   </div>
+  {#if ov.generatorOn}
+    <button class="gear" onclick={() => void ov.openGenerator()} title="Password generator ({ov.config?.hotkeys.generate_password ?? ''})" aria-label="Password generator">
+      <Icon name="key" size={17} />
+    </button>
+  {/if}
   <button class="gear" onclick={() => void ov.openSettings()} title="Settings" aria-label="Settings">
     <Icon name="sliders" size={17} />
   </button>

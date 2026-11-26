@@ -65,7 +65,7 @@ let settings: Settings = {
   hotkeys: {
     open_overlay: 'Win+V', open_overlay_backup: 'Ctrl+Alt+V', queue_collect: 'Ctrl+Shift+Q', queue_paste: 'Ctrl+V', paste_plain: 'Shift+Enter',
     quick_paste: 'Alt+{1..9}', expand: 'Tab', pin: 'Ctrl+P', queue_add: 'Ctrl+Q', delete: 'Delete', close: 'Escape',
-    prev_category: 'Ctrl+Left', next_category: 'Ctrl+Right'
+    prev_category: 'Ctrl+Left', next_category: 'Ctrl+Right', generate_password: 'Ctrl+G'
   },
   theme: {
     mode: 'auto', tint_opacity: 0.14, corner_radius: 24, animations: true,
@@ -74,6 +74,7 @@ let settings: Settings = {
   ui: { width: 360, height: 500, position: 'caret', search_limit: 50, close_on_blur: true, hint_hide_after: 5 },
   retention: { max_items: 500, max_age: '30d', max_image_mb: 25, max_text_kb: 1024 },
   security: { sensitive_ttl_secs: 60, min_token_len: 16, min_entropy_bits: 3.5, blacklist_exes: ['bitwarden.exe', '1password.exe'], blacklist_titles: ['Bitwarden', '1Password'] },
+  password_generator: { enabled: true, length: 20, lowercase: true, uppercase: true, digits: true, symbols: true, avoid_lookalikes: false },
   snippet_folders: [],
   actions: [],
   automations: []
@@ -83,9 +84,29 @@ const mockConfig = (): UiConfig => ({
   hotkeys: { ...settings.hotkeys },
   theme: { ...settings.theme },
   ui: { ...settings.ui },
+  password_generator: { ...settings.password_generator },
   os: { rounded: true, native_backdrop: false, transparency: true, dark: window.matchMedia('(prefers-color-scheme: dark)').matches },
   action_names: ['Run lint hook']
 });
+
+/** Stand-in for the Rust generator, only so the screen can be designed in a browser. Not for real passwords. */
+function mockPassword(g: Settings['password_generator']): string {
+  if (!g.enabled) throw new Error('The password generator is turned off in Settings.');
+  const skip = g.avoid_lookalikes ? 'O0oIl1' : '';
+  const kinds = [g.lowercase && 'abcdefghijklmnopqrstuvwxyz', g.uppercase && 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', g.digits && '0123456789', g.symbols && '!@#$%^&*()-_=+[]{};:,.?']
+    .filter((k): k is string => typeof k === 'string')
+    .map((k) => [...k].filter((c) => !skip.includes(c)));
+  if (kinds.length === 0) throw new Error('Turn on at least one kind of character in the password generator settings.');
+  const pool = kinds.flat();
+  const pick = (from: string[]): string => from[crypto.getRandomValues(new Uint32Array(1))[0]! % from.length]!;
+  const out = [...kinds.map(pick)];
+  while (out.length < g.length) out.push(pick(pool));
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0]! % (i + 1);
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out.join('');
+}
 
 let privateMode = false;
 let autostart = false;
@@ -206,6 +227,10 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
         return null;
       case 'status': return { private_mode: privateMode, queue } satisfies StatusView;
       case 'set_private_mode': privateMode = Boolean(args.on); return null;
+      case 'generate_password': return mockPassword(settings.password_generator);
+      case 'copy_text':
+        console.info('[mock] copy_text');
+        return null;
       case 'get_autostart': return autostart;
       case 'set_autostart': autostart = Boolean(args.on); return null;
       case 'ui_config': return mockConfig();

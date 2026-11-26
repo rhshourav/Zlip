@@ -3,6 +3,7 @@
   import FilterBar from './components/FilterBar.svelte';
   import Footer from './components/Footer.svelte';
   import ItemCard from './components/ItemCard.svelte';
+  import PasswordGenerator from './components/PasswordGenerator.svelte';
   import SearchBar from './components/SearchBar.svelte';
   import Settings from './components/Settings.svelte';
   import Toast from './components/Toast.svelte';
@@ -61,6 +62,7 @@
       del: parseChord(h.delete),
       prev: parseChord(h.prev_category),
       next: parseChord(h.next_category),
+      generate: parseChord(h.generate_password),
       quick: parseQuickPaste(h.quick_paste)
     };
   });
@@ -81,6 +83,17 @@
       return;
     }
 
+    // The generator: Enter pastes (unless a button has the focus and Enter means "press it"),
+    // Ctrl+C copies (unless some text is selected), its own shortcut makes a new password.
+    if (ov.view === 'generator') {
+      if (hit(keys.close)) return did(), void ov.back();
+      if (hit(keys.generate)) return did(), void ov.newPassword();
+      if (e.key === 'Enter' && bare && !(e.target instanceof HTMLButtonElement)) return did(), void ov.pastePassword();
+      const copy = e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'c';
+      if (copy && !window.getSelection()?.toString()) return did(), void ov.copyPassword();
+      return;
+    }
+
     if (hit(keys.close)) return did(), void ov.back();
     if (e.key === 'ArrowDown' && bare) return did(), ov.move(1);
     if (e.key === 'ArrowUp' && bare) return did(), ov.move(-1);
@@ -91,6 +104,7 @@
     if (hit(keys.expand)) return did('expand'), void ov.toggleExpand();
     if (hit(keys.pin)) return did('pin'), void ov.togglePin();
     if (hit(keys.queue)) return did('queue'), void ov.queueAddSelected();
+    if (ov.generatorOn && hit(keys.generate)) return did(), void ov.openGenerator();
     if (hit(keys.prev)) return did(), ov.cycleCategory(-1);
     if (hit(keys.next)) return did(), ov.cycleCategory(1);
     // A bare Delete edits the search text while there is some; it removes the item only when the box is empty.
@@ -131,6 +145,8 @@
 <main class="panel" aria-label="Zlip clipboard">
   {#if ov.view === 'settings'}
     <Settings />
+  {:else if ov.view === 'generator'}
+    <PasswordGenerator />
   {:else}
     <SearchBar bind:this={search} />
     <FilterBar />

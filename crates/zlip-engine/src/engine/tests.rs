@@ -804,3 +804,47 @@ fn the_history_limit_holds_as_items_arrive_not_only_every_ten_minutes() {
     f.e.ingest(cap("item 15", 900, f.t0));
     assert_eq!(f.e.search(&q(""), f.t0).len(), 11);
 }
+
+#[test]
+fn passwords_follow_the_generator_settings() {
+    let mut f = fx();
+    let default = f.e.generate_password().unwrap();
+    assert_eq!(default.len(), 20, "the default length");
+
+    let mut cfg = Config::default();
+    cfg.password_generator.length = 32;
+    cfg.password_generator.lowercase = false;
+    cfg.password_generator.digits = false;
+    cfg.password_generator.symbols = false;
+    f.cfg.set(cfg);
+    let caps = f.e.generate_password().unwrap();
+    assert_eq!(caps.len(), 32);
+    assert!(caps.bytes().all(|b| b.is_ascii_uppercase()), "{caps}");
+}
+
+#[test]
+fn two_generated_passwords_are_different() {
+    let mut f = fx();
+    assert_ne!(f.e.generate_password(), f.e.generate_password());
+}
+
+#[test]
+fn the_generator_can_be_turned_off() {
+    let mut f = fx();
+    let mut cfg = Config::default();
+    cfg.password_generator.enabled = false;
+    f.cfg.set(cfg);
+    let err = f.e.generate_password().unwrap_err();
+    assert!(err.contains("turned off"), "{err}");
+}
+
+#[test]
+fn the_overlay_is_told_what_the_generator_does() {
+    let mut f = fx();
+    let mut cfg = Config::default();
+    cfg.password_generator.length = 40;
+    f.cfg.set(cfg);
+    let ui = f.e.ui_config(OsInfo::default());
+    assert!(ui.password_generator.enabled);
+    assert_eq!(ui.password_generator.length, 40);
+}

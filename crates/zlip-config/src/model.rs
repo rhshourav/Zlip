@@ -30,6 +30,7 @@ pub struct Config {
     pub ui: Ui,
     pub retention: Retention,
     pub security: SecurityConfig,
+    pub password_generator: PasswordGenerator,
     pub snippet_folders: Vec<SnippetFolder>,
     pub actions: Vec<Action>,
     pub automations: Vec<Automation>,
@@ -44,6 +45,7 @@ impl Default for Config {
             ui: Ui::default(),
             retention: Retention::default(),
             security: SecurityConfig::default(),
+            password_generator: PasswordGenerator::default(),
             snippet_folders: Vec::new(),
             actions: Vec::new(),
             automations: Vec::new(),
@@ -81,6 +83,8 @@ pub struct Hotkeys {
     pub prev_category: String,
     /// In the overlay: next category.
     pub next_category: String,
+    /// In the overlay: open the password generator (and make a new password while it is open).
+    pub generate_password: String,
 }
 
 impl Default for Hotkeys {
@@ -100,6 +104,7 @@ impl Default for Hotkeys {
             close: s("Escape"),
             prev_category: s("Ctrl+Left"),
             next_category: s("Ctrl+Right"),
+            generate_password: s("Ctrl+G"),
         }
     }
 }
@@ -133,7 +138,7 @@ impl Hotkeys {
         Ok(self.quick_paste.parse::<QuickPaste>()?.mods)
     }
 
-    fn local(&self) -> [(&'static str, &str); 8] {
+    fn local(&self) -> [(&'static str, &str); 9] {
         [
             ("paste_plain", &self.paste_plain),
             ("expand", &self.expand),
@@ -143,6 +148,7 @@ impl Hotkeys {
             ("close", &self.close),
             ("prev_category", &self.prev_category),
             ("next_category", &self.next_category),
+            ("generate_password", &self.generate_password),
         ]
     }
 }
@@ -333,6 +339,45 @@ pub fn parse_duration_secs(s: &str) -> Result<Option<u64>, String> {
     n.checked_mul(mult)
         .map(Some)
         .ok_or_else(|| format!("`{s}` is too large"))
+}
+
+/// Fewest and most characters a generated password can have.
+pub const PASSWORD_MIN_LEN: u32 = 8;
+pub const PASSWORD_MAX_LEN: u32 = 128;
+
+/// The built-in password generator: a key button and a shortcut in the overlay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct PasswordGenerator {
+    /// Show the generator in the overlay. Off hides its button and ignores its shortcut.
+    pub enabled: bool,
+    /// How many characters a password has.
+    #[schemars(range(min = 8, max = 128))]
+    pub length: u32,
+    /// Use lower-case letters (a-z).
+    pub lowercase: bool,
+    /// Use upper-case letters (A-Z).
+    pub uppercase: bool,
+    /// Use digits (0-9).
+    pub digits: bool,
+    /// Use symbols such as ! @ # $ % & *.
+    pub symbols: bool,
+    /// Leave out characters that are easy to mix up when read: O 0 o, I l 1.
+    pub avoid_lookalikes: bool,
+}
+
+impl Default for PasswordGenerator {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            length: 20,
+            lowercase: true,
+            uppercase: true,
+            digits: true,
+            symbols: true,
+            avoid_lookalikes: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -614,6 +659,23 @@ impl Config {
             bad("retention.max_age", e);
         }
 
+        // password generator
+        let g = &self.password_generator;
+        range(
+            &mut bad,
+            "password_generator.length",
+            g.length,
+            PASSWORD_MIN_LEN,
+            PASSWORD_MAX_LEN,
+        );
+        if !(g.lowercase || g.uppercase || g.digits || g.symbols) {
+            bad(
+                "password_generator",
+                "turn on at least one kind of character (lowercase, uppercase, digits or symbols)"
+                    .to_owned(),
+            );
+        }
+
         // security
         let s = &self.security;
         range(
@@ -842,6 +904,49 @@ mod tests {
         ] {
             assert!(v.iter().any(|m| m.starts_with(p)), "missing {p}: {v:?}");
         }
+    }
+
+    #[test]
+    fn the_password_generator_is_on_by_default_and_old_files_still_load() {
+        // A settings file written before the generator existed has no such section.
+        let cfg: Config = toml::from_str("[ui]\nwidth = 400").unwrap();
+        assert_eq!(cfg.password_generator, PasswordGenerator::default());
+        assert!(cfg.password_generator.enabled);
+        assert_eq!(cfg.hotkeys.generate_password, "Ctrl+G");
+    }
+
+    #[test]
+    fn the_password_generator_settings_are_checked() {
+        assert_eq!(
+            issues("[password_generator]\nlength = 64\nsymbols = false\nenabled = false"),
+            Vec::<String>::new(),
+            "turning it off or dropping a kind is fine"
+        );
+        for length in [7, 129] {
+            let v = issues(&format!("[password_generator]\nlength = {length}"));
+            assert!(
+                v.iter().any(|m| m.starts_with("password_generator.length")),
+                "{length}: {v:?}"
+            );
+        }
+        let v = issues(
+            "[password_generator]\nlowercase = false\nuppercase = false\ndigits = false\nsymbols = false",
+        );
+        assert!(
+            v.iter()
+                .any(|m| m.starts_with("password_generator:") && m.contains("at least one")),
+            "{v:?}"
+        );
+    }
+
+    #[test]
+    fn the_generator_shortcut_must_not_clash_with_another() {
+        let v = issues("[hotkeys]\ngenerate_password = \"Ctrl+P\"");
+        assert!(
+            v.iter()
+                .any(|m| m.starts_with("hotkeys.generate_password") && m.contains("already used")),
+            "{v:?}"
+        );
     }
 
     #[test]

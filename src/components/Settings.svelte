@@ -6,6 +6,7 @@
   import { api } from '../lib/api';
   import { hasModifier, hasWin, withWin } from '../lib/chords';
   import { ov } from '../lib/overlay.svelte';
+  import { PASSWORD_MAX_LEN, PASSWORD_MIN_LEN } from '../lib/password';
   import { checkForUpdate, type UpdateState } from '../lib/update';
 
   interface Opt<T> {
@@ -52,6 +53,19 @@
   function withCurrent<T extends string | number>(options: Opt<T>[], current: T): Opt<T>[] {
     return options.some((o) => o.value === current) ? options : [...options, { value: current, label: `${current} (custom)` }];
   }
+
+  // ---- password generator: at least one kind of character always stays on ----
+  const KINDS = ['lowercase', 'uppercase', 'digits', 'symbols'] as const;
+  function setKind(kind: (typeof KINDS)[number], on: boolean): void {
+    if (!c) return;
+    const g = c.password_generator;
+    if (!on && !KINDS.some((k) => k !== kind && g[k])) {
+      ov.showNotice({ level: 'warn', message: 'Keep at least one kind of character on.' });
+      return;
+    }
+    ov.change((cfg) => (cfg.password_generator[kind] = on));
+  }
+  const lengthPercent = $derived(c ? ((c.password_generator.length - PASSWORD_MIN_LEN) / (PASSWORD_MAX_LEN - PASSWORD_MIN_LEN)) * 100 : 0);
 
   // ---- shortcuts ----
   function toggleWin(on: boolean): void {
@@ -254,6 +268,73 @@
             </span>
             <Toggle label="Private mode" checked={ov.privateMode} onchange={(v) => void ov.setPrivate(v)} />
           </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Password generator</h2>
+        <div class="group">
+          <div class="r">
+            <span class="l">
+              Password generator
+              <small>A key button in the search bar, and {c.hotkeys.generate_password}.</small>
+            </span>
+            <Toggle label="Password generator" checked={c.password_generator.enabled} onchange={(v) => ov.change((cfg) => (cfg.password_generator.enabled = v))} />
+          </div>
+          {#if c.password_generator.enabled}
+            <div class="r">
+              <span class="l">Length</span>
+              <span class="len">
+                <input
+                  class="range"
+                  type="range"
+                  min={PASSWORD_MIN_LEN}
+                  max={PASSWORD_MAX_LEN}
+                  step="1"
+                  aria-label="Password length"
+                  style:--p="{lengthPercent}%"
+                  value={c.password_generator.length}
+                  oninput={(e) => ov.change((cfg) => (cfg.password_generator.length = Number(e.currentTarget.value)))}
+                />
+                <span class="num">{c.password_generator.length}</span>
+              </span>
+            </div>
+            <div class="r">
+              <span class="l">
+                Lowercase letters
+                <small>a b c</small>
+              </span>
+              <Toggle label="Lowercase letters" checked={c.password_generator.lowercase} onchange={(v) => setKind('lowercase', v)} />
+            </div>
+            <div class="r">
+              <span class="l">
+                Capital letters
+                <small>A B C</small>
+              </span>
+              <Toggle label="Capital letters" checked={c.password_generator.uppercase} onchange={(v) => setKind('uppercase', v)} />
+            </div>
+            <div class="r">
+              <span class="l">
+                Numbers
+                <small>1 2 3</small>
+              </span>
+              <Toggle label="Numbers" checked={c.password_generator.digits} onchange={(v) => setKind('digits', v)} />
+            </div>
+            <div class="r">
+              <span class="l">
+                Symbols
+                <small>! @ # $ % &amp; *</small>
+              </span>
+              <Toggle label="Symbols" checked={c.password_generator.symbols} onchange={(v) => setKind('symbols', v)} />
+            </div>
+            <div class="r">
+              <span class="l">
+                Skip look-alikes
+                <small>Leaves out O 0 o and I l 1, which are easy to mix up.</small>
+              </span>
+              <Toggle label="Skip look-alikes" checked={c.password_generator.avoid_lookalikes} onchange={(v) => ov.change((cfg) => (cfg.password_generator.avoid_lookalikes = v))} />
+            </div>
+          {/if}
         </div>
       </section>
 
@@ -482,6 +563,22 @@
   option {
     background: var(--panel-solid);
     color: var(--ink);
+  }
+
+  .len {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .len .range {
+    width: 150px;
+  }
+  .num {
+    min-width: 26px;
+    text-align: right;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-2);
   }
 
   .range {

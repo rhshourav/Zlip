@@ -90,7 +90,10 @@ fn run(
     let prepared = prepare(&mut shared.engine(), &ctx);
     match prepared {
         Ok(p) => deliver(shared, p, from_overlay, previous),
-        Err(e) => shared.notify("error", e.to_string()),
+        Err(e) => {
+            tracing::warn!("paste: could not prepare the item: {e}");
+            shared.notify("error", e.to_string());
+        }
     }
 }
 
@@ -144,6 +147,13 @@ fn deliver(
     from_overlay: bool,
     previous: Option<Previous>,
 ) {
+    // The log gets ids and window handles only, never what is being pasted.
+    tracing::info!(
+        id = prepared.id.0,
+        from_overlay,
+        window = shared.last_foreground().0,
+        "paste: start"
+    );
     if from_overlay {
         windows::hide_overlay(shared);
         let target = shared.last_foreground();
@@ -155,11 +165,17 @@ fn deliver(
             }
             sleep(Duration::from_millis(15));
         }
+        tracing::info!(
+            wanted = target.0,
+            in_front = foreground_window().0,
+            "paste: focus handed back"
+        );
     }
 
     let written = match write_prepared(&prepared.content) {
         Ok(seq) => seq,
         Err(e) => {
+            tracing::warn!("paste: could not write the clipboard: {e}");
             shared.notify("error", format!("Could not use the clipboard: {e}"));
             return;
         }
@@ -171,9 +187,11 @@ fn deliver(
         tracing::debug!("modifiers still held, pasting anyway");
     }
     if let Err(e) = send_paste() {
+        tracing::warn!("paste: could not send the keystroke: {e}");
         shared.notify("error", format!("Could not send the paste keystroke: {e}"));
         return;
     }
+    tracing::info!(in_front = foreground_window().0, "paste: keystroke sent");
     if prepared.cursor_back > 0 {
         sleep(Duration::from_millis(70));
         let _ = send_left_arrows(prepared.cursor_back);

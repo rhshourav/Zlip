@@ -16,7 +16,7 @@ pub use io::{
 };
 pub use model::{
     Action, ActionKind, Automation, CategoryColors, Config, ConfigIssue, GlobalChords, Hotkeys,
-    Position, Retention, SCHEMA_VERSION, SecurityConfig, Snippet, SnippetFolder, Theme, ThemeMode,
-    Ui, When, parse_duration_secs,
+    PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, PasswordGenerator, Position, Retention, SCHEMA_VERSION,
+    SecurityConfig, Snippet, SnippetFolder, Theme, ThemeMode, Ui, When, parse_duration_secs,
 };
 pub use watch::{ConfigHandle, ConfigWatcher, ReloadEvent, watch};

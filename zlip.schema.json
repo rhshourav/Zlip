@@ -24,6 +24,7 @@
         "close": "Escape",
         "delete": "Delete",
         "expand": "Tab",
+        "generate_password": "Ctrl+G",
         "next_category": "Ctrl+Right",
         "open_overlay": "Win+V",
         "open_overlay_backup": "Ctrl+Alt+V",
@@ -34,6 +35,18 @@
         "queue_collect": "Ctrl+Shift+Q",
         "queue_paste": "Ctrl+V",
         "quick_paste": "Alt+{1..9}"
+      }
+    },
+    "password_generator": {
+      "$ref": "#/$defs/PasswordGenerator",
+      "default": {
+        "avoid_lookalikes": false,
+        "digits": true,
+        "enabled": true,
+        "length": 20,
+        "lowercase": true,
+        "symbols": true,
+        "uppercase": true
       }
     },
     "retention": {
@@ -259,6 +272,11 @@
           "type": "string",
           "default": "Tab"
         },
+        "generate_password": {
+          "description": "In the overlay: open the password generator (and make a new password while it is open).",
+          "type": "string",
+          "default": "Ctrl+G"
+        },
         "next_category": {
           "description": "In the overlay: next category.",
           "type": "string",
@@ -308,6 +326,51 @@
           "description": "In the overlay: paste the 1st to 9th visible item, written like `Alt+{1..9}`.",
           "type": "string",
           "default": "Alt+{1..9}"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PasswordGenerator": {
+      "description": "The built-in password generator: a key button and a shortcut in the overlay.",
+      "type": "object",
+      "properties": {
+        "avoid_lookalikes": {
+          "description": "Leave out characters that are easy to mix up when read: O 0 o, I l 1.",
+          "type": "boolean",
+          "default": false
+        },
+        "digits": {
+          "description": "Use digits (0-9).",
+          "type": "boolean",
+          "default": true
+        },
+        "enabled": {
+          "description": "Show the generator in the overlay. Off hides its button and ignores its shortcut.",
+          "type": "boolean",
+          "default": true
+        },
+        "length": {
+          "description": "How many characters a password has.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 20,
+          "maximum": 128,
+          "minimum": 8
+        },
+        "lowercase": {
+          "description": "Use lower-case letters (a-z).",
+          "type": "boolean",
+          "default": true
+        },
+        "symbols": {
+          "description": "Use symbols such as ! @ # $ % & *.",
+          "type": "boolean",
+          "default": true
+        },
+        "uppercase": {
+          "description": "Use upper-case letters (A-Z).",
+          "type": "boolean",
+          "default": true
         }
       },
       "additionalProperties": false

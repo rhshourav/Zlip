@@ -19,6 +19,7 @@ delete        = "Delete"
 close         = "Escape"
 prev_category = "Ctrl+Left"
 next_category = "Ctrl+Right"
+generate_password = "Ctrl+G"    # open the password generator; while it is open, make a new password
 
 [theme]
 mode          = "auto"   # auto | light | dark
@@ -67,6 +68,15 @@ blacklist_exes = [
 # Browser extensions copy from inside the browser, so Zlip also skips copies
 # made while the active window title contains one of these words.
 blacklist_titles = ["Bitwarden", "1Password", "KeePass", "Dashlane", "NordPass", "Enpass", "Proton Pass", "RoboForm", "LastPass"]
+
+[password_generator]
+enabled          = true    # false hides the key button and ignores its shortcut
+length           = 20      # 8 - 128 characters
+lowercase        = true    # a-z
+uppercase        = true    # A-Z
+digits           = true    # 0-9
+symbols          = true    # ! @ # $ % & * ...
+avoid_lookalikes = false   # leave out O 0 o I l 1, which are easy to mix up
 
 # Pinned snippets. Placeholders: {date} {date:%Y-%m-%d} {time} {clipboard} {cursor}
 # [[snippet_folders]]

@@ -41,6 +41,9 @@ export const api = {
   paste: (id: number, transforms: Transform[], plain: boolean) => call<void>('paste', { id, transforms, plain }),
   pasteText: (text: string, transforms: Transform[]) => call<void>('paste_text', { text, transforms }),
   saveText: (text: string) => call<void>('save_text', { text }),
+  generatePassword: () => call<string>('generate_password'),
+  /** An ordinary copy: Zlip's own clipboard watcher then saves it like anything else you copy. */
+  copyText: (text: string) => call<void>('copy_text', { text }),
   togglePin: (id: number) => call<boolean | null>('toggle_pin', { id }),
   deleteItem: (id: number) => call<boolean>('delete_item', { id }),
   clearHistory: () => call<number>('clear_history'),
