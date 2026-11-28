@@ -1,6 +1,7 @@
 // A believable fake backend for browser development and visual checks. Not shipped
 // behaviour: the real engine is in Rust. Keep it small and obviously fake.
 
+import { parsePattern } from './password';
 import type { Category, FolderView, ItemDetail, ItemView, Notice, QueueView, Settings, SettingsView, StatusView, UiConfig } from './types';
 
 const now = Date.now();
@@ -74,7 +75,7 @@ let settings: Settings = {
   ui: { width: 360, height: 500, position: 'caret', search_limit: 50, close_on_blur: true, hint_hide_after: 5 },
   retention: { max_items: 500, max_age: '30d', max_image_mb: 25, max_text_kb: 1024 },
   security: { sensitive_ttl_secs: 60, min_token_len: 16, min_entropy_bits: 3.5, blacklist_exes: ['bitwarden.exe', '1password.exe'], blacklist_titles: ['Bitwarden', '1Password'] },
-  password_generator: { enabled: true, length: 20, lowercase: true, uppercase: true, digits: true, symbols: true, avoid_lookalikes: false },
+  password_generator: { enabled: true, mode: 'random', length: 20, lowercase: true, uppercase: true, digits: true, symbols: true, pattern: 'LL######', avoid_lookalikes: false },
   snippet_folders: [],
   actions: [],
   automations: []
@@ -93,14 +94,25 @@ const mockConfig = (): UiConfig => ({
 function mockPassword(g: Settings['password_generator']): string {
   if (!g.enabled) throw new Error('The password generator is turned off in Settings.');
   const skip = g.avoid_lookalikes ? 'O0oIl1' : '';
+  const choose = (from: string[]): string => from[crypto.getRandomValues(new Uint32Array(1))[0]! % from.length]!;
+  if (g.mode === 'pattern') {
+    const parsed = parsePattern(g.pattern);
+    if (!parsed.ok) throw new Error(`The password pattern cannot be used: ${parsed.error}`);
+    const sets = {
+      capital: [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'],
+      small: [...'abcdefghijklmnopqrstuvwxyz'],
+      digit: [...'0123456789'],
+      symbol: [...'!@#$%^&*()-_=+[]{};:,.?']
+    };
+    return parsed.slots.map((s) => (s.kind === 'literal' ? s.ch : choose(sets[s.kind].filter((c) => !skip.includes(c))))).join('');
+  }
   const kinds = [g.lowercase && 'abcdefghijklmnopqrstuvwxyz', g.uppercase && 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', g.digits && '0123456789', g.symbols && '!@#$%^&*()-_=+[]{};:,.?']
     .filter((k): k is string => typeof k === 'string')
     .map((k) => [...k].filter((c) => !skip.includes(c)));
   if (kinds.length === 0) throw new Error('Turn on at least one kind of character in the password generator settings.');
   const pool = kinds.flat();
-  const pick = (from: string[]): string => from[crypto.getRandomValues(new Uint32Array(1))[0]! % from.length]!;
-  const out = [...kinds.map(pick)];
-  while (out.length < g.length) out.push(pick(pool));
+  const out = [...kinds.map(choose)];
+  while (out.length < g.length) out.push(choose(pool));
   for (let i = out.length - 1; i > 0; i--) {
     const j = crypto.getRandomValues(new Uint32Array(1))[0]! % (i + 1);
     [out[i], out[j]] = [out[j]!, out[i]!];

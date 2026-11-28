@@ -96,12 +96,16 @@ export interface Hotkeys {
 export interface PasswordGeneratorSettings {
   /** Off hides the key button and ignores the shortcut. */
   enabled: boolean;
-  /** 8 to 128 characters. */
+  /** `random` mixes the kinds below; `pattern` follows the shape written in `pattern`. */
+  mode: 'random' | 'pattern';
+  /** Random mode: 8 to 128 characters. */
   length: number;
   lowercase: boolean;
   uppercase: boolean;
   digits: boolean;
   symbols: boolean;
+  /** Pattern mode: `L` capital, `l` small letter, `#` number, `*` symbol, `\x` keeps x, anything else is kept. */
+  pattern: string;
   /** Leave out O 0 o I l 1, which are easy to mix up. */
   avoid_lookalikes: boolean;
 }

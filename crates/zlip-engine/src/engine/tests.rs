@@ -823,6 +823,34 @@ fn passwords_follow_the_generator_settings() {
 }
 
 #[test]
+fn a_pattern_makes_passwords_in_that_shape() {
+    use zlip_config::PasswordMode;
+    let mut f = fx();
+    let mut cfg = Config::default();
+    cfg.password_generator.mode = PasswordMode::Pattern;
+    cfg.password_generator.pattern = "LL######".into();
+    f.cfg.set(cfg);
+    for _ in 0..20 {
+        let p = f.e.generate_password().unwrap();
+        assert_eq!(p.len(), 8, "{p}");
+        assert!(p[..2].bytes().all(|b| b.is_ascii_uppercase()), "{p}");
+        assert!(p[2..].bytes().all(|b| b.is_ascii_digit()), "{p}");
+    }
+}
+
+#[test]
+fn a_broken_pattern_is_explained_not_guessed() {
+    use zlip_config::PasswordMode;
+    let mut f = fx();
+    let mut cfg = Config::default();
+    cfg.password_generator.mode = PasswordMode::Pattern;
+    cfg.password_generator.pattern = "AA123456".into();
+    f.cfg.set(cfg);
+    let err = f.e.generate_password().unwrap_err();
+    assert!(err.contains("at least one"), "{err}");
+}
+
+#[test]
 fn two_generated_passwords_are_different() {
     let mut f = fx();
     assert_ne!(f.e.generate_password(), f.e.generate_password());

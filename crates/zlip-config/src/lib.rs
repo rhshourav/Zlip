@@ -9,6 +9,7 @@
 pub mod hotkey;
 mod io;
 mod model;
+mod password_pattern;
 mod watch;
 
 pub use io::{
@@ -16,7 +17,11 @@ pub use io::{
 };
 pub use model::{
     Action, ActionKind, Automation, CategoryColors, Config, ConfigIssue, GlobalChords, Hotkeys,
-    PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, PasswordGenerator, Position, Retention, SCHEMA_VERSION,
-    SecurityConfig, Snippet, SnippetFolder, Theme, ThemeMode, Ui, When, parse_duration_secs,
+    PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, PasswordGenerator, PasswordMode, Position, Retention,
+    SCHEMA_VERSION, SecurityConfig, Snippet, SnippetFolder, Theme, ThemeMode, Ui, When,
+    parse_duration_secs,
+};
+pub use password_pattern::{
+    PASSWORD_PATTERN_MAX_RAW, PatternError, PatternSlot, parse_password_pattern,
 };
 pub use watch::{ConfigHandle, ConfigWatcher, ReloadEvent, watch};

@@ -6,7 +6,7 @@
   import { api } from '../lib/api';
   import { hasModifier, hasWin, withWin } from '../lib/chords';
   import { ov } from '../lib/overlay.svelte';
-  import { PASSWORD_MAX_LEN, PASSWORD_MIN_LEN } from '../lib/password';
+  import { describePattern, entropyBits, parsePattern, PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, STRENGTH_LABEL, strength } from '../lib/password';
   import { checkForUpdate, type UpdateState } from '../lib/update';
 
   interface Opt<T> {
@@ -65,6 +65,31 @@
     }
     ov.change((cfg) => (cfg.password_generator[kind] = on));
   }
+  const MODES = [
+    { id: 'random', label: 'Random' },
+    { id: 'pattern', label: 'Pattern' }
+  ] as const;
+  // Shapes to start from, written the way the result looks. L = capital, l = small letter, # = number.
+  const PATTERN_EXAMPLES = [
+    { shows: 'AA123456', pattern: 'LL######' },
+    { shows: 'Aa123456', pattern: 'Ll######' },
+    { shows: 'aa-1234', pattern: 'll-####' }
+  ] as const;
+  // What is being typed. It is saved as soon as it is a usable pattern; until then the last good one stays
+  // saved, and leaving the box puts that one back, so a half-typed pattern can never break the generator.
+  let patternDraft = $state<string | null>(null);
+  const patternText = $derived(patternDraft ?? c?.password_generator.pattern ?? '');
+  const patternParsed = $derived(parsePattern(patternText));
+  function typePattern(text: string): void {
+    patternDraft = text;
+    if (parsePattern(text).ok) ov.change((cfg) => (cfg.password_generator.pattern = text));
+  }
+  function usePattern(text: string): void {
+    patternDraft = null;
+    ov.change((cfg) => (cfg.password_generator.pattern = text));
+  }
+  const patternBits = $derived(c && patternParsed.ok ? entropyBits({ ...c.password_generator, pattern: patternText }) : 0);
+  const patternLevel = $derived(strength(patternBits));
   const lengthPercent = $derived(c ? ((c.password_generator.length - PASSWORD_MIN_LEN) / (PASSWORD_MAX_LEN - PASSWORD_MIN_LEN)) * 100 : 0);
 
   // ---- shortcuts ----
@@ -283,50 +308,98 @@
           </div>
           {#if c.password_generator.enabled}
             <div class="r">
-              <span class="l">Length</span>
-              <span class="len">
+              <span class="l">
+                Style
+                <small>{c.password_generator.mode === 'pattern' ? 'A fixed shape, like 2 capitals then 6 numbers.' : 'Any mix of the kinds you choose.'}</small>
+              </span>
+              <Segmented label="Password style" value={c.password_generator.mode} options={MODES.map((m) => ({ id: m.id, label: m.label }))} onchange={(mode) => ov.change((cfg) => (cfg.password_generator.mode = mode))} />
+            </div>
+            {#if c.password_generator.mode === 'pattern'}
+              <div class="r col">
+                <label class="l" for="pw-pattern">
+                  Pattern
+                  <small><code>L</code> capital · <code>l</code> small letter · <code>#</code> number · <code>*</code> symbol</small>
+                </label>
                 <input
-                  class="range"
-                  type="range"
-                  min={PASSWORD_MIN_LEN}
-                  max={PASSWORD_MAX_LEN}
-                  step="1"
-                  aria-label="Password length"
-                  style:--p="{lengthPercent}%"
-                  value={c.password_generator.length}
-                  oninput={(e) => ov.change((cfg) => (cfg.password_generator.length = Number(e.currentTarget.value)))}
+                  id="pw-pattern"
+                  class="text mono"
+                  type="text"
+                  value={patternText}
+                  maxlength="256"
+                  spellcheck="false"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  aria-invalid={!patternParsed.ok}
+                  aria-describedby="pw-pattern-note"
+                  onfocus={() => (patternDraft = null)}
+                  oninput={(e) => typePattern(e.currentTarget.value)}
+                  onblur={() => (patternDraft = null)}
                 />
-                <span class="num">{c.password_generator.length}</span>
-              </span>
-            </div>
-            <div class="r">
-              <span class="l">
-                Lowercase letters
-                <small>a b c</small>
-              </span>
-              <Toggle label="Lowercase letters" checked={c.password_generator.lowercase} onchange={(v) => setKind('lowercase', v)} />
-            </div>
-            <div class="r">
-              <span class="l">
-                Capital letters
-                <small>A B C</small>
-              </span>
-              <Toggle label="Capital letters" checked={c.password_generator.uppercase} onchange={(v) => setKind('uppercase', v)} />
-            </div>
-            <div class="r">
-              <span class="l">
-                Numbers
-                <small>1 2 3</small>
-              </span>
-              <Toggle label="Numbers" checked={c.password_generator.digits} onchange={(v) => setKind('digits', v)} />
-            </div>
-            <div class="r">
-              <span class="l">
-                Symbols
-                <small>! @ # $ % &amp; *</small>
-              </span>
-              <Toggle label="Symbols" checked={c.password_generator.symbols} onchange={(v) => setKind('symbols', v)} />
-            </div>
+                <p id="pw-pattern-note" class="pnote" class:err={!patternParsed.ok}>
+                  {#if patternParsed.ok}
+                    Makes {describePattern(patternParsed.slots)} · about {patternBits} bits ·
+                    <span class="level {patternLevel}">{STRENGTH_LABEL[patternLevel]}</span>
+                  {:else}
+                    {patternParsed.error}
+                  {/if}
+                </p>
+                <div class="examples" role="group" aria-label="Example patterns">
+                  {#each PATTERN_EXAMPLES as ex (ex.pattern)}
+                    <button class="ex" title="Use the pattern {ex.pattern}" aria-label="Use the pattern {ex.pattern}" onclick={() => usePattern(ex.pattern)}>{ex.shows}</button>
+                  {/each}
+                </div>
+                {#if patternParsed.ok && patternLevel === 'weak'}
+                  <p class="pnote">A short, simple shape is easy to guess. It is fine when a site insists on it; add more characters when you can.</p>
+                {/if}
+                <p class="pnote">Any other character stays as typed (<code>ZQ-####</code> makes <code>ZQ-4821</code>). A backslash keeps the next one, so <code>\#</code> is a plain #.</p>
+              </div>
+            {:else}
+              <div class="r">
+                <span class="l">Length</span>
+                <span class="len">
+                  <input
+                    class="range"
+                    type="range"
+                    min={PASSWORD_MIN_LEN}
+                    max={PASSWORD_MAX_LEN}
+                    step="1"
+                    aria-label="Password length"
+                    style:--p="{lengthPercent}%"
+                    value={c.password_generator.length}
+                    oninput={(e) => ov.change((cfg) => (cfg.password_generator.length = Number(e.currentTarget.value)))}
+                  />
+                  <span class="num">{c.password_generator.length}</span>
+                </span>
+              </div>
+              <div class="r">
+                <span class="l">
+                  Lowercase letters
+                  <small>a b c</small>
+                </span>
+                <Toggle label="Lowercase letters" checked={c.password_generator.lowercase} onchange={(v) => setKind('lowercase', v)} />
+              </div>
+              <div class="r">
+                <span class="l">
+                  Capital letters
+                  <small>A B C</small>
+                </span>
+                <Toggle label="Capital letters" checked={c.password_generator.uppercase} onchange={(v) => setKind('uppercase', v)} />
+              </div>
+              <div class="r">
+                <span class="l">
+                  Numbers
+                  <small>1 2 3</small>
+                </span>
+                <Toggle label="Numbers" checked={c.password_generator.digits} onchange={(v) => setKind('digits', v)} />
+              </div>
+              <div class="r">
+                <span class="l">
+                  Symbols
+                  <small>! @ # $ % &amp; *</small>
+                </span>
+                <Toggle label="Symbols" checked={c.password_generator.symbols} onchange={(v) => setKind('symbols', v)} />
+              </div>
+            {/if}
             <div class="r">
               <span class="l">
                 Skip look-alikes
@@ -579,6 +652,86 @@
     font-size: 12px;
     font-variant-numeric: tabular-nums;
     color: var(--ink-2);
+  }
+
+  /* A row whose control needs the full width: the label, the box, then a few lines of help. */
+  .r.col {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+  .text {
+    height: 30px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: var(--field);
+    box-shadow: 0 0 0 1px transparent;
+    font-size: 13px;
+    color: var(--ink);
+    transition: box-shadow var(--dur-fast);
+  }
+  .text.mono {
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  .text:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  .text[aria-invalid='true'] {
+    box-shadow: 0 0 0 1.5px var(--danger);
+  }
+  .pnote {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--ink-3);
+  }
+  .pnote.err {
+    color: var(--danger);
+  }
+  .pnote code,
+  .l small code {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .level {
+    font-weight: 600;
+    color: var(--accent-ink);
+  }
+  .level.weak {
+    color: var(--danger);
+  }
+  .level.fair {
+    color: #d68a1f;
+  }
+  .level.strong {
+    color: #2c9d64;
+  }
+  .examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .ex {
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: var(--field);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-2);
+    transition:
+      background var(--dur-fast),
+      color var(--dur-fast);
+  }
+  .ex:hover {
+    background: color-mix(in srgb, var(--ink) 10%, transparent);
+    color: var(--ink);
   }
 
   .range {

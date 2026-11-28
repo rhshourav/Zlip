@@ -4,7 +4,10 @@
 //! generator, the tests pass a fixed sequence. Nothing here keeps or logs a password.
 
 use zeroize::Zeroizing;
-use zlip_config::{PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, PasswordGenerator};
+use zlip_config::{
+    PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, PasswordGenerator, PasswordMode, PatternError, PatternSlot,
+    parse_password_pattern,
+};
 
 const LOWER: &str = "abcdefghijklmnopqrstuvwxyz";
 const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -20,6 +23,8 @@ pub enum PasswordError {
     NoCharacters,
     #[error("the system could not provide random numbers")]
     NoRandomness,
+    #[error("the password pattern cannot be used: {0}")]
+    BadPattern(PatternError),
 }
 
 /// A random number in `0..n`, free of modulo bias: values from the unfair tail of the
@@ -54,13 +59,50 @@ fn class(chars: &str, avoid_lookalikes: bool) -> Vec<u8> {
         .collect()
 }
 
-/// Make a password that follows `rules`.
-///
+/// Make a password that follows `rules`: a random mix, or the shape of the pattern,
+/// depending on the mode.
+pub fn generate_password(
+    rules: &PasswordGenerator,
+    fill: &mut dyn FnMut(&mut [u8]) -> bool,
+) -> Result<Zeroizing<String>, PasswordError> {
+    match rules.mode {
+        PasswordMode::Random => random_password(rules, fill),
+        PasswordMode::Pattern => patterned_password(rules, fill),
+    }
+}
+
+/// Follow the pattern position by position. Each position is drawn on its own, evenly
+/// from its kind, so there is nothing to shuffle and nothing is guaranteed beyond the
+/// shape itself. The kinds and the length of random mode play no part here; only
+/// `avoid_lookalikes` does.
+fn patterned_password(
+    rules: &PasswordGenerator,
+    fill: &mut dyn FnMut(&mut [u8]) -> bool,
+) -> Result<Zeroizing<String>, PasswordError> {
+    let slots = parse_password_pattern(&rules.pattern).map_err(PasswordError::BadPattern)?;
+    let avoid = rules.avoid_lookalikes;
+    let (upper, lower) = (class(UPPER, avoid), class(LOWER, avoid));
+    let (digits, symbols) = (class(DIGITS, avoid), class(SYMBOLS, avoid));
+    // A position never writes more bytes than its pattern text, so this never grows (and
+    // never leaves a copy of the password behind in a freed buffer).
+    let mut out = Zeroizing::new(String::with_capacity(rules.pattern.len()));
+    for slot in slots {
+        match slot {
+            PatternSlot::Capital => out.push(char::from(pick(&upper, fill)?)),
+            PatternSlot::Small => out.push(char::from(pick(&lower, fill)?)),
+            PatternSlot::Digit => out.push(char::from(pick(&digits, fill)?)),
+            PatternSlot::Symbol => out.push(char::from(pick(&symbols, fill)?)),
+            PatternSlot::Literal(c) => out.push(c),
+        }
+    }
+    Ok(out)
+}
+
 /// Every kind of character that is turned on appears at least once, the rest is drawn
 /// evenly from all of them, and the order is shuffled so the guaranteed characters do not
 /// sit at the front. The length is held between [`PASSWORD_MIN_LEN`] and
 /// [`PASSWORD_MAX_LEN`].
-pub fn generate_password(
+fn random_password(
     rules: &PasswordGenerator,
     fill: &mut dyn FnMut(&mut [u8]) -> bool,
 ) -> Result<Zeroizing<String>, PasswordError> {
@@ -251,6 +293,132 @@ mod tests {
         assert_eq!(class(UPPER, true).len(), 24);
         assert_eq!(class(DIGITS, true).len(), 8);
         assert_eq!(class(SYMBOLS, true).len(), 23);
+    }
+
+    fn shaped(pattern: &str, avoid_lookalikes: bool, seed: u64) -> String {
+        let r = PasswordGenerator {
+            mode: PasswordMode::Pattern,
+            pattern: pattern.to_owned(),
+            avoid_lookalikes,
+            ..rules()
+        };
+        make(&r, seed)
+    }
+
+    #[test]
+    fn two_capitals_then_six_numbers() {
+        // The shape the user asked for: AA123456.
+        for seed in 1..300 {
+            let p = shaped("LL######", false, seed);
+            let b = p.as_bytes();
+            assert_eq!(b.len(), 8, "{p}");
+            assert!(b[..2].iter().all(u8::is_ascii_uppercase), "{p}");
+            assert!(b[2..].iter().all(u8::is_ascii_digit), "{p}");
+        }
+    }
+
+    #[test]
+    fn every_placeholder_draws_from_its_own_kind() {
+        for seed in 1..200 {
+            let p = shaped("Ll#*", false, seed);
+            let b = p.as_bytes();
+            assert!(b[0].is_ascii_uppercase(), "{p}");
+            assert!(b[1].is_ascii_lowercase(), "{p}");
+            assert!(b[2].is_ascii_digit(), "{p}");
+            assert!(SYMBOLS.as_bytes().contains(&b[3]), "{p}");
+        }
+    }
+
+    #[test]
+    fn other_characters_in_a_pattern_stay_where_they_are() {
+        for seed in 1..50 {
+            let p = shaped("ZQ-####-é", false, seed);
+            assert!(p.starts_with("ZQ-") && p.ends_with("-é"), "{p}");
+            assert_eq!(p.chars().count(), 9);
+            assert!(p[3..7].bytes().all(|b| b.is_ascii_digit()), "{p}");
+        }
+        assert_eq!(
+            shaped(r"\L\#\*#", false, 3)
+                .chars()
+                .take(3)
+                .collect::<String>(),
+            "L#*"
+        );
+    }
+
+    #[test]
+    fn a_pattern_ignores_the_kinds_and_the_length_of_random_mode() {
+        let r = PasswordGenerator {
+            mode: PasswordMode::Pattern,
+            pattern: "LL######".to_owned(),
+            length: 64,
+            lowercase: false,
+            uppercase: false,
+            digits: false,
+            symbols: false,
+            ..rules()
+        };
+        let p = make(&r, 9);
+        assert_eq!(p.len(), 8);
+        assert!(p[..2].bytes().all(|b| b.is_ascii_uppercase()), "{p}");
+    }
+
+    #[test]
+    fn look_alikes_are_left_out_of_a_pattern_too_but_typed_characters_are_not() {
+        for seed in 1..200 {
+            let p = shaped("O1-LlL#####", true, seed);
+            assert!(p.starts_with("O1-"), "{p}");
+            assert!(!p[3..].contains(|c| LOOKALIKES.contains(c)), "{p}");
+        }
+        assert!(
+            (1..200)
+                .any(|seed| shaped("LlL#####", false, seed).contains(|c| LOOKALIKES.contains(c)))
+        );
+    }
+
+    #[test]
+    fn every_digit_and_capital_can_come_up_in_a_pattern() {
+        let mut seen = std::collections::HashSet::new();
+        for seed in 1..200 {
+            seen.extend(shaped(&"L#".repeat(64), false, seed).bytes());
+        }
+        assert_eq!(seen.len(), UPPER.len() + DIGITS.len());
+    }
+
+    #[test]
+    fn patterns_make_different_passwords_each_time() {
+        assert_ne!(shaped("LL######", false, 1), shaped("LL######", false, 2));
+    }
+
+    #[test]
+    fn a_pattern_that_cannot_be_used_is_an_error() {
+        for (pattern, why) in [
+            ("", PatternError::Empty),
+            ("AA123456", PatternError::NoPlaceholder),
+            ("#\\", PatternError::TrailingBackslash),
+        ] {
+            let r = PasswordGenerator {
+                mode: PasswordMode::Pattern,
+                pattern: pattern.to_owned(),
+                ..rules()
+            };
+            let got = generate_password(&r, &mut |_| true);
+            assert_eq!(
+                got.unwrap_err(),
+                PasswordError::BadPattern(why),
+                "{pattern:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failing_random_source_stops_a_pattern_too() {
+        let r = PasswordGenerator {
+            mode: PasswordMode::Pattern,
+            ..rules()
+        };
+        let got = generate_password(&r, &mut |_| false);
+        assert_eq!(got.unwrap_err(), PasswordError::NoRandomness);
     }
 
     #[test]

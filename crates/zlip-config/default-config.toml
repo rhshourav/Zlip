@@ -70,13 +70,17 @@ blacklist_exes = [
 blacklist_titles = ["Bitwarden", "1Password", "KeePass", "Dashlane", "NordPass", "Enpass", "Proton Pass", "RoboForm", "LastPass"]
 
 [password_generator]
-enabled          = true    # false hides the key button and ignores its shortcut
-length           = 20      # 8 - 128 characters
-lowercase        = true    # a-z
-uppercase        = true    # A-Z
-digits           = true    # 0-9
-symbols          = true    # ! @ # $ % & * ...
-avoid_lookalikes = false   # leave out O 0 o I l 1, which are easy to mix up
+enabled          = true     # false hides the key button and ignores its shortcut
+mode             = "random" # "random": a mix of the kinds below; "pattern": the shape in `pattern`
+length           = 20       # random mode: 8 - 128 characters
+lowercase        = true     # random mode: a-z
+uppercase        = true     # random mode: A-Z
+digits           = true     # random mode: 0-9
+symbols          = true     # random mode: ! @ # $ % & * ...
+# Pattern mode: L capital, l small letter, # number, * symbol, \x keeps x as typed,
+# anything else is kept as written. LL###### makes QK482915; ZQ-#### makes ZQ-4821.
+pattern          = "LL######"
+avoid_lookalikes = false    # leave out O 0 o I l 1, which are easy to mix up
 
 # Pinned snippets. Placeholders: {date} {date:%Y-%m-%d} {time} {clipboard} {cursor}
 # [[snippet_folders]]

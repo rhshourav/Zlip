@@ -1,4 +1,5 @@
 use crate::hotkey::{Chord, Mods, ParseError, QuickPaste};
+use crate::password_pattern::parse_password_pattern;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -345,23 +346,41 @@ pub fn parse_duration_secs(s: &str) -> Result<Option<u64>, String> {
 pub const PASSWORD_MIN_LEN: u32 = 8;
 pub const PASSWORD_MAX_LEN: u32 = 128;
 
+/// How the generator decides what a password looks like.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PasswordMode {
+    /// A mix of the kinds of character that are turned on, in any order.
+    #[default]
+    Random,
+    /// A fixed shape such as `LL######` (two capitals, then six numbers).
+    Pattern,
+}
+
 /// The built-in password generator: a key button and a shortcut in the overlay.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct PasswordGenerator {
     /// Show the generator in the overlay. Off hides its button and ignores its shortcut.
     pub enabled: bool,
-    /// How many characters a password has.
+    /// `random` mixes the kinds below; `pattern` follows the shape written in `pattern`.
+    pub mode: PasswordMode,
+    /// How many characters a random password has.
     #[schemars(range(min = 8, max = 128))]
     pub length: u32,
-    /// Use lower-case letters (a-z).
+    /// Random mode: use lower-case letters (a-z).
     pub lowercase: bool,
-    /// Use upper-case letters (A-Z).
+    /// Random mode: use upper-case letters (A-Z).
     pub uppercase: bool,
-    /// Use digits (0-9).
+    /// Random mode: use digits (0-9).
     pub digits: bool,
-    /// Use symbols such as ! @ # $ % & *.
+    /// Random mode: use symbols such as ! @ # $ % & *.
     pub symbols: bool,
+    /// Pattern mode: the shape of the password. `L` capital, `l` small letter, `#` number,
+    /// `*` symbol; a backslash keeps the next character as typed; anything else is kept
+    /// as it is. `LL######` makes `QK482915`.
+    #[schemars(length(min = 1, max = 256))]
+    pub pattern: String,
     /// Leave out characters that are easy to mix up when read: O 0 o, I l 1.
     pub avoid_lookalikes: bool,
 }
@@ -370,11 +389,13 @@ impl Default for PasswordGenerator {
     fn default() -> Self {
         Self {
             enabled: true,
+            mode: PasswordMode::Random,
             length: 20,
             lowercase: true,
             uppercase: true,
             digits: true,
             symbols: true,
+            pattern: "LL######".to_owned(),
             avoid_lookalikes: false,
         }
     }
@@ -668,12 +689,17 @@ impl Config {
             PASSWORD_MIN_LEN,
             PASSWORD_MAX_LEN,
         );
-        if !(g.lowercase || g.uppercase || g.digits || g.symbols) {
+        // The kinds only matter in random mode, so a pattern setup need not keep one on.
+        if g.mode == PasswordMode::Random && !(g.lowercase || g.uppercase || g.digits || g.symbols)
+        {
             bad(
                 "password_generator",
                 "turn on at least one kind of character (lowercase, uppercase, digits or symbols)"
                     .to_owned(),
             );
+        }
+        if let Err(e) = parse_password_pattern(&g.pattern) {
+            bad("password_generator.pattern", e.to_string());
         }
 
         // security
@@ -937,6 +963,57 @@ mod tests {
                 .any(|m| m.starts_with("password_generator:") && m.contains("at least one")),
             "{v:?}"
         );
+    }
+
+    #[test]
+    fn the_generator_starts_in_random_mode_with_a_ready_made_pattern() {
+        let g = PasswordGenerator::default();
+        assert_eq!(g.mode, PasswordMode::Random);
+        assert_eq!(g.pattern, "LL######");
+        let cfg: Config = toml::from_str("[password_generator]\nmode = \"pattern\"").unwrap();
+        assert_eq!(cfg.password_generator.mode, PasswordMode::Pattern);
+        assert!(toml::from_str::<Config>("[password_generator]\nmode = \"words\"").is_err());
+    }
+
+    #[test]
+    fn a_pattern_is_checked_even_before_it_is_used() {
+        assert_eq!(
+            issues("[password_generator]\nmode = \"pattern\"\npattern = \"ZQ-####\""),
+            Vec::<String>::new()
+        );
+        for (pattern, expect) in [
+            ("", "empty"),
+            ("AA123456", "at least one"),
+            ("##\\", "ends with a backslash"),
+        ] {
+            // TOML basic strings: a backslash must be written twice.
+            let toml = format!(
+                "[password_generator]\npattern = \"{}\"",
+                pattern.replace('\\', "\\\\")
+            );
+            let v = issues(&toml);
+            assert!(
+                v.iter()
+                    .any(|m| m.starts_with("password_generator.pattern") && m.contains(expect)),
+                "{pattern:?}: {v:?}"
+            );
+        }
+        let long = format!("[password_generator]\npattern = \"{}\"", "#".repeat(129));
+        assert!(
+            issues(&long)
+                .iter()
+                .any(|m| m.starts_with("password_generator.pattern") && m.contains("too long"))
+        );
+    }
+
+    #[test]
+    fn pattern_mode_does_not_need_a_kind_turned_on() {
+        let none = "lowercase = false\nuppercase = false\ndigits = false\nsymbols = false";
+        assert_eq!(
+            issues(&format!("[password_generator]\nmode = \"pattern\"\n{none}")),
+            Vec::<String>::new()
+        );
+        assert!(!issues(&format!("[password_generator]\n{none}")).is_empty());
     }
 
     #[test]

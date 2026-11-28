@@ -45,6 +45,8 @@
         "enabled": true,
         "length": 20,
         "lowercase": true,
+        "mode": "random",
+        "pattern": "LL######",
         "symbols": true,
         "uppercase": true
       }
@@ -340,7 +342,7 @@
           "default": false
         },
         "digits": {
-          "description": "Use digits (0-9).",
+          "description": "Random mode: use digits (0-9).",
           "type": "boolean",
           "default": true
         },
@@ -350,7 +352,7 @@
           "default": true
         },
         "length": {
-          "description": "How many characters a password has.",
+          "description": "How many characters a random password has.",
           "type": "integer",
           "format": "uint32",
           "default": 20,
@@ -358,22 +360,49 @@
           "minimum": 8
         },
         "lowercase": {
-          "description": "Use lower-case letters (a-z).",
+          "description": "Random mode: use lower-case letters (a-z).",
           "type": "boolean",
           "default": true
         },
+        "mode": {
+          "description": "`random` mixes the kinds below; `pattern` follows the shape written in `pattern`.",
+          "$ref": "#/$defs/PasswordMode",
+          "default": "random"
+        },
+        "pattern": {
+          "description": "Pattern mode: the shape of the password. `L` capital, `l` small letter, `#` number,\n`*` symbol; a backslash keeps the next character as typed; anything else is kept\nas it is. `LL######` makes `QK482915`.",
+          "type": "string",
+          "default": "LL######",
+          "maxLength": 256,
+          "minLength": 1
+        },
         "symbols": {
-          "description": "Use symbols such as ! @ # $ % & *.",
+          "description": "Random mode: use symbols such as ! @ # $ % & *.",
           "type": "boolean",
           "default": true
         },
         "uppercase": {
-          "description": "Use upper-case letters (A-Z).",
+          "description": "Random mode: use upper-case letters (A-Z).",
           "type": "boolean",
           "default": true
         }
       },
       "additionalProperties": false
+    },
+    "PasswordMode": {
+      "description": "How the generator decides what a password looks like.",
+      "oneOf": [
+        {
+          "description": "A mix of the kinds of character that are turned on, in any order.",
+          "type": "string",
+          "const": "random"
+        },
+        {
+          "description": "A fixed shape such as `LL######` (two capitals, then six numbers).",
+          "type": "string",
+          "const": "pattern"
+        }
+      ]
     },
     "Position": {
       "oneOf": [

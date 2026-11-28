@@ -3,7 +3,7 @@
   import Icon from './Icon.svelte';
   import { chordCaps } from '../lib/chords';
   import { ov } from '../lib/overlay.svelte';
-  import { characters, entropyBits, rulesSummary, STRENGTH_LABEL, strength } from '../lib/password';
+  import { characters, entropyBits, passwordLength, rulesSummary, STRENGTH_LABEL, strength } from '../lib/password';
 
   const g = $derived(ov.config?.password_generator ?? null);
   const chars = $derived(characters(ov.password));
@@ -47,7 +47,7 @@
       <p class="meta">
         <span class="level {level}">{STRENGTH_LABEL[level]}</span>
         <span aria-hidden="true">·</span>
-        {g.length} characters
+        {passwordLength(g)} characters
         <span aria-hidden="true">·</span>
         about {bits} bits
       </p>
