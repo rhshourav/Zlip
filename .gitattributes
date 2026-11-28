@@ -1,0 +1,19 @@
+# Keep line endings identical on every OS. Windows runners otherwise check files out
+# with CRLF, which breaks tests that compare file text (zlip.schema.json).
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Never touch binary files.
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary

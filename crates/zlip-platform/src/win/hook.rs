@@ -44,7 +44,9 @@ use windows_sys::Win32::{
     Foundation::{LPARAM, LRESULT, WPARAM},
     System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId},
     UI::{
-        Input::KeyboardAndMouse::{KEYEVENTF_KEYUP, MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey},
+        Input::KeyboardAndMouse::{
+            KEYEVENTF_KEYUP, MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey,
+        },
         WindowsAndMessaging::{
             CallNextHookEx, DispatchMessageW, GetForegroundWindow, GetMessageW, HC_ACTION, HHOOK,
             KBDLLHOOKSTRUCT, KillTimer, LLKHF_INJECTED, MSG, PostThreadMessageW, SetTimer,
@@ -124,7 +126,10 @@ pub fn set_chords(chords: &GlobalChords) {
     SLOTS[HotkeyId::OpenOverlay.index()].store(keymap::encode(chords.open_overlay), Relaxed);
     SLOTS[HotkeyId::QueueCollect.index()].store(keymap::encode(chords.queue_collect), Relaxed);
     SLOTS[HotkeyId::QueuePaste.index()].store(keymap::encode(chords.queue_paste), Relaxed);
-    BACKUP.store(chords.open_overlay_backup.map_or(0, keymap::encode), Relaxed);
+    BACKUP.store(
+        chords.open_overlay_backup.map_or(0, keymap::encode),
+        Relaxed,
+    );
 }
 
 /// While `true`, the queue-paste chord (default `Ctrl+V`) is intercepted.

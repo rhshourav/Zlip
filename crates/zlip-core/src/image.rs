@@ -115,7 +115,7 @@ pub fn dib_to_rgba(dib: &[u8]) -> Result<Rgba8Image, ImageError> {
     }
     // 32-bit BI_RGB bitmaps usually carry an unused alpha byte of zero.
     if !any_alpha || compression == 0 {
-        for px in out.chunks_exact_mut(4) {
+        for px in out.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
     }
@@ -142,7 +142,7 @@ pub fn rgba_to_dib(img: &Rgba8Image) -> Vec<u8> {
     d.extend_from_slice(&((w * h * 4) as u32).to_le_bytes());
     d.extend_from_slice(&[0u8; 16]); // resolution and palette counts
     for y in (0..h).rev() {
-        for px in img.pixels[y * w * 4..(y + 1) * w * 4].chunks_exact(4) {
+        for px in img.pixels[y * w * 4..(y + 1) * w * 4].as_chunks::<4>().0 {
             d.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
         }
     }
@@ -195,10 +195,14 @@ pub fn decode_png(bytes: &[u8]) -> Result<Rgba8Image, ImageError> {
     match info.color_type {
         png::ColorType::Rgba => pixels.extend_from_slice(src),
         png::ColorType::Rgb => src
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .for_each(|p| pixels.extend_from_slice(&[p[0], p[1], p[2], 255])),
         png::ColorType::GrayscaleAlpha => {
-            src.chunks_exact(2)
+            src.as_chunks::<2>()
+                .0
+                .iter()
                 .for_each(|p| pixels.extend_from_slice(&[p[0], p[0], p[0], p[1]]));
         }
         png::ColorType::Grayscale => src

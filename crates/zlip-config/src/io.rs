@@ -56,7 +56,8 @@ impl Config {
     /// The settings screen saves with this. It writes every setting (including
     /// snippets, actions and automations) but not the comments of a hand-edited file.
     pub fn to_toml(&self) -> Result<String, ConfigError> {
-        let body = toml::to_string_pretty(self).map_err(|e| ConfigError::Io(io::Error::other(e)))?;
+        let body =
+            toml::to_string_pretty(self).map_err(|e| ConfigError::Io(io::Error::other(e)))?;
         // An f32 widened to f64 prints as 0.14000000357...; write what the user sees instead.
         let tint = {
             let mut t = self.theme.tint_opacity.to_string();
@@ -259,12 +260,21 @@ mod tests {
         // Only the two values change: comments and spacing survive.
         assert!(up.contains("position          = \"caret\"  # caret"));
         // A size the user chose is never touched.
-        assert_eq!(upgrade_legacy_text("[ui]\nwidth = 440\nheight = 700\n"), None);
-        assert_eq!(upgrade_legacy_text("[ui]\nwidth = 500\nheight = 640\n"), None);
+        assert_eq!(
+            upgrade_legacy_text("[ui]\nwidth = 440\nheight = 700\n"),
+            None
+        );
+        assert_eq!(
+            upgrade_legacy_text("[ui]\nwidth = 500\nheight = 640\n"),
+            None
+        );
         // Neither is a file that does not mention the size.
         assert_eq!(upgrade_legacy_text("[ui]\nclose_on_blur = true\n"), None);
         // Other sections' `width` keys do not count.
-        assert_eq!(upgrade_legacy_text("[other]\nwidth = 440\nheight = 640\n"), None);
+        assert_eq!(
+            upgrade_legacy_text("[other]\nwidth = 440\nheight = 640\n"),
+            None
+        );
     }
 
     #[test]
@@ -336,9 +346,12 @@ mod tests {
 
     #[test]
     fn the_committed_json_schema_is_current() {
+        // A Windows checkout may turn LF into CRLF (.gitattributes pins LF, but stay
+        // robust anyway): compare the text, not the line endings.
+        let committed = include_str!("../../../zlip.schema.json").replace("\r\n", "\n");
         assert_eq!(
             Config::json_schema(),
-            include_str!("../../../zlip.schema.json"),
+            committed,
             "zlip.schema.json is stale. Regenerate it with:\n  cargo run -p zlip-config --example export_schema > zlip.schema.json"
         );
     }
